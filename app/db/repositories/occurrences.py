@@ -45,6 +45,19 @@ class OccurrencesRepository:
         )
         return (await self._session.execute(stmt)).scalars().all()
 
+    async def next_fire_at(self, reminder_id: int, after: datetime) -> datetime | None:
+        stmt = (
+            sa.select(Occurrence.fire_at)
+            .where(
+                Occurrence.reminder_id == reminder_id,
+                Occurrence.status == OccurrenceStatus.PENDING,
+                Occurrence.fire_at >= after,
+            )
+            .order_by(Occurrence.fire_at)
+            .limit(1)
+        )
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
     async def count_for_reminder(self, reminder_id: int) -> int:
         stmt = sa.select(sa.func.count()).where(Occurrence.reminder_id == reminder_id)
         return int((await self._session.execute(stmt)).scalar_one())
