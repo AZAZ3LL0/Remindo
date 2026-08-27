@@ -27,6 +27,9 @@ select = [
 ]
 ignore = [
     "B008",  # aiogram and FastAPI style default-argument factories
+    "RUF001", # Cyrillic user-facing strings are a product requirement
+    "RUF002",
+    "RUF003",
 ]
 
 [tool.ruff.lint.per-file-ignores]
