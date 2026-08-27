@@ -1,0 +1,16 @@
+# The team lead owns the core contracts. Changing them takes a separate pull
+# request labelled contract-change with a core version bump (tech.md 0, 11.2).
+*                        @AZAZ3LL0
+/tech.md                 @AZAZ3LL0
+/migrations/             @AZAZ3LL0
+/app/db/models/          @AZAZ3LL0
+/app/domain/contracts.py @AZAZ3LL0
+/app/domain/schedules.py @AZAZ3LL0
+/app/bot/callbacks.py    @AZAZ3LL0
+/app/bot/keyboards/      @AZAZ3LL0
+/app/bot/render/texts.py @AZAZ3LL0
+/app/core/config.py      @AZAZ3LL0
+/.env.example            @AZAZ3LL0
+/scripts/seed.py         @AZAZ3LL0
+/.github/workflows/      @AZAZ3LL0
+/docker/                 @AZAZ3LL0

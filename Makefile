@@ -38,7 +38,7 @@ typecheck:
 	$(RUN) mypy app
 
 test:
-	$(RUN_DB) pytest
+	$(RUN_DB) pytest --cov=app/domain --cov=app/services --cov-report=term-missing --cov-fail-under=85
 
 test-unit:
 	$(RUN) pytest tests/unit tests/contract

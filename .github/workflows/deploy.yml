@@ -1,0 +1,50 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check deployment secrets
+        id: secrets
+        run: |
+          if [ -z "${{ secrets.DEPLOY_HOST }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "DEPLOY_HOST is not set; skipping deployment."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install the SSH key
+        if: steps.secrets.outputs.configured == 'true'
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      # The host keeps .env; migrations run as a one-shot step before the
+      # processes restart.
+      - name: Deploy
+        if: steps.secrets.outputs.configured == 'true'
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "set -e
+             cd ${{ secrets.DEPLOY_PATH }}
+             git fetch --all
+             git reset --hard origin/main
+             docker compose -f docker/compose.yml build
+             docker compose -f docker/compose.yml run --rm migrator
+             docker compose -f docker/compose.yml up -d bot worker
+             docker compose -f docker/compose.yml ps"

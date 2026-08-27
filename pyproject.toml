@@ -11,6 +11,8 @@ packages = ["app"]
 line-length = 100
 target-version = "py312"
 src = ["app", "tests"]
+# Ruff formats Python inside Markdown; docs, including the core file, stay untouched.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = [
