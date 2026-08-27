@@ -42,5 +42,5 @@ def next_attempt(
 
     # The cap keeps absurd attempt counters from overflowing timedelta.
     exponent = min(max(attempts, 1) - 1, 16)
-    delay = min(BASE_BACKOFF * 2**exponent, MAX_BACKOFF)
+    delay: timedelta = min(BASE_BACKOFF * (2**exponent), MAX_BACKOFF)
     return now + delay

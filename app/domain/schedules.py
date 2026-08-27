@@ -147,4 +147,5 @@ def parse_schedule(payload: Any) -> Schedule:
 
 def dump_schedule(schedule: Schedule) -> dict[str, Any]:
     """Render a schedule back into its JSONB representation."""
-    return SCHEDULE_ADAPTER.dump_python(schedule, mode="json")
+    payload: dict[str, Any] = SCHEDULE_ADAPTER.dump_python(schedule, mode="json")
+    return payload
