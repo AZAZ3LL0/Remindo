@@ -7,7 +7,7 @@ reads a clock.
 
 import re
 from datetime import datetime, time
-from typing import Annotated, Any, Literal, TypeAlias
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -53,12 +53,12 @@ def _format_local_datetime(value: datetime) -> str:
     return value.strftime("%Y-%m-%dT%H:%M")
 
 
-LocalTime: TypeAlias = Annotated[
+LocalTime = Annotated[
     time,
     Field(json_schema_extra={"format": "HH:MM"}),
     PlainSerializer(_format_hhmm, return_type=str),
 ]
-LocalDateTime: TypeAlias = Annotated[
+LocalDateTime = Annotated[
     datetime,
     PlainSerializer(_format_local_datetime, return_type=str),
 ]
@@ -132,7 +132,7 @@ class MonthlySchedule(_WithTimes):
         return sorted(set(value))
 
 
-Schedule: TypeAlias = Annotated[
+Schedule = Annotated[
     OnceSchedule | IntervalSchedule | DailySchedule | WeeklySchedule | MonthlySchedule,
     Field(discriminator="kind"),
 ]
