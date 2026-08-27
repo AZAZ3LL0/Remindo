@@ -233,7 +233,7 @@ class ReaperService:
         for occurrence in overdue:
             for delivery in await self._deliveries.list_sent_for_occurrence(occurrence.id):
                 await self._deliveries.add_action(
-                    delivery.id, delivery.user_id, ActionKind.AUTO_EXPIRE
+                    delivery.id, delivery.user_id, ActionKind.AUTO_EXPIRE, created_at=now
                 )
                 await self._strip_keyboard(delivery)
             await self._occurrences.set_status(occurrence.id, OccurrenceStatus.EXPIRED)

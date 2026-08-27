@@ -64,18 +64,25 @@ async def engine(migrated_database: str) -> AsyncIterator[AsyncEngine]:
 
 
 @pytest_asyncio.fixture
-async def db_session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    """One test, one transaction. Service commits become savepoint releases."""
+async def session_factory(engine: AsyncEngine) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """Sessions bound to one connection inside a transaction the test rolls back."""
     async with engine.connect() as connection:
         transaction = await connection.begin()
-        factory = async_sessionmaker(
+        yield async_sessionmaker(
             bind=connection,
             expire_on_commit=False,
             join_transaction_mode="create_savepoint",
         )
-        async with factory() as session:
-            yield session
         await transaction.rollback()
+
+
+@pytest_asyncio.fixture
+async def db_session(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[AsyncSession]:
+    """One test, one transaction. Service commits become savepoint releases."""
+    async with session_factory() as session:
+        yield session
 
 
 @pytest.fixture

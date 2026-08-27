@@ -114,7 +114,11 @@ class ReactionsService:
             locked_until=None,
         )
         await self._deliveries.add_action(
-            delivery.id, delivery.user_id, ActionKind.SNOOZE, {"minutes": minutes}
+            delivery.id,
+            delivery.user_id,
+            ActionKind.SNOOZE,
+            created_at=now,
+            payload={"minutes": minutes},
         )
         return ReactionResult(
             applied=True,
@@ -130,7 +134,9 @@ class ReactionsService:
         await self._deliveries.update_fields(
             delivery.id, status=status, reacted_at=now, locked_until=None
         )
-        await self._deliveries.add_action(delivery.id, delivery.user_id, _ACTION_KINDS[action])
+        await self._deliveries.add_action(
+            delivery.id, delivery.user_id, _ACTION_KINDS[action], created_at=now
+        )
 
         if await self._occurrences.all_deliveries_terminal(occurrence.id):
             await self._occurrences.set_status(

@@ -53,7 +53,9 @@ class DeliveriesRepository:
             .where(Delivery.id.in_(due))
             .values(locked_until=now + lock_for, attempts=Delivery.attempts + 1)
             .returning(Delivery)
-            .execution_options(synchronize_session=False)
+            # populate_existing makes RETURNING refresh the identity map, so the
+            # claimed rows carry the incremented attempt counter.
+            .execution_options(synchronize_session=False, populate_existing=True)
         )
         return (await self._session.execute(stmt)).scalars().all()
 
@@ -66,10 +68,17 @@ class DeliveriesRepository:
         delivery_id: int,
         user_id: int,
         kind: ActionKind,
+        created_at: datetime,
         payload: dict[str, Any] | None = None,
     ) -> DeliveryAction:
+        # The moment comes from the service clock, never from the database, so
+        # statistics stay consistent with the rest of the domain.
         action = DeliveryAction(
-            delivery_id=delivery_id, user_id=user_id, kind=kind, payload=payload or {}
+            delivery_id=delivery_id,
+            user_id=user_id,
+            kind=kind,
+            payload=payload or {},
+            created_at=created_at,
         )
         self._session.add(action)
         await self._session.flush()
