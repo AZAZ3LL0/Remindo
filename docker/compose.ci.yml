@@ -1,0 +1,36 @@
+name: reminder-ci
+
+# Ephemeral stack for the full gate: lint, typecheck, migrations, tests.
+# Mirrors what GitHub Actions runs, so the gate is reproducible locally.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: reminder
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d reminder"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  gate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: dev
+    environment:
+      ENV: test
+      BOT_TOKEN: 000000:fake-token-for-ci
+      USE_FAKE_BOT: "true"
+      DATABASE_URL: postgresql+asyncpg://app:app@db:5432/reminder
+      TEST_DATABASE_URL: postgresql+asyncpg://app:app@db:5432/reminder_test
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      bash -lc "ruff check . && ruff format --check . && mypy app && alembic upgrade head && pytest"

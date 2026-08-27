@@ -1,0 +1,70 @@
+[project]
+name = "reminder-bot"
+version = "0.1.0"
+description = "Telegram reminder bot"
+requires-python = ">=3.12"
+
+[tool.setuptools]
+packages = ["app"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "DTZ",  # flake8-datetimez
+    "ASYNC",
+    "C4",
+    "SIM",
+    "RUF",
+]
+ignore = [
+    "B008",  # aiogram and FastAPI style default-argument factories
+]
+
+[tool.ruff.lint.per-file-ignores]
+"app/core/clock.py" = ["DTZ005"]      # the only place allowed to read the wall clock
+"tests/*" = ["DTZ001", "DTZ005"]      # fixed datetimes in fixtures are intentional
+"migrations/*" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["app.domain.*", "app.services.*"]
+strict = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+filterwarnings = ["error::DeprecationWarning:app.*"]
+markers = [
+    "integration: requires a live PostgreSQL database",
+]
+
+[tool.coverage.run]
+source = ["app/domain", "app/services"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true
