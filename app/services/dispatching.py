@@ -1,6 +1,6 @@
 """dispatcher.deliver: claim, send, apply the retry policy (tech.md 7.2)."""
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -79,7 +79,7 @@ class DispatchingService:
         result = DispatchResult(
             claimed=len(claimed), sent=sent, retried=retried, failed=failed, blocked=blocked
         )
-        _log.info("dispatcher.deliver", **result.__dict__)
+        _log.info("dispatcher.deliver", **asdict(result))
         return result
 
     async def _deliver_one(self, delivery: Delivery) -> str:
@@ -225,7 +225,7 @@ class ReaperService:
         result = SweepResult(
             expired=expired, repeated=repeated, locks_released=locks, fsm_states_purged=purged
         )
-        _log.info("reaper.sweep", **result.__dict__)
+        _log.info("reaper.sweep", **asdict(result))
         return result
 
     async def _expire_overdue(self, now: datetime) -> int:

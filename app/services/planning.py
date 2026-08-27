@@ -1,6 +1,6 @@
 """planner.materialize: turn schedules into queue rows (tech.md 7.1)."""
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -79,7 +79,7 @@ class PlanningService:
             deliveries_created=created_deliveries,
             reminders_archived=archived,
         )
-        _log.info("planner.materialize", **result.__dict__)
+        _log.info("planner.materialize", **asdict(result))
         return result
 
     async def _materialize_one(

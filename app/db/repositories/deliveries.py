@@ -117,8 +117,15 @@ class DeliveriesRepository:
                 Reminder.repeat_after_minutes.is_not(None),
                 Occurrence.repeats_sent < Reminder.max_repeats,
                 Occurrence.expires_at > now,
-                Delivery.sent_at
-                + sa.cast(sa.func.concat(Reminder.repeat_after_minutes, " minutes"), sa.Interval)
+                # type_coerce keeps the sum timezone-aware; without it the
+                # driver compares an aware bind against a naive expression.
+                sa.type_coerce(
+                    Delivery.sent_at
+                    + sa.cast(
+                        sa.func.concat(Reminder.repeat_after_minutes, " minutes"), sa.Interval
+                    ),
+                    sa.TIMESTAMP(timezone=True),
+                )
                 <= now,
             )
             .order_by(Delivery.sent_at)
