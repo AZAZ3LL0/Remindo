@@ -11,11 +11,14 @@ from app.db.models import Reminder, ReminderRecipient
 from app.db.repositories.categories import CategoriesRepository
 from app.db.repositories.reminders import RecipientsRepository, RemindersRepository
 from app.domain.contracts import RecipientRole, ReminderStatus
-from app.domain.errors import NotFoundError, PermissionDeniedError, ValidationError
-from app.domain.schedules import Schedule, dump_schedule
-
-TITLE_MAX_LENGTH = 120
-NOTE_MAX_LENGTH = 1000
+from app.domain.errors import (
+    NotFoundError,
+    PermissionDeniedError,
+    ScheduleExhaustedError,
+    ValidationError,
+)
+from app.domain.reminders import first_fire_at, normalize_note, normalize_reminder_title
+from app.domain.schedules import Schedule, dump_schedule, parse_schedule
 
 
 class RemindersService:
@@ -40,11 +43,18 @@ class RemindersService:
         snooze_minutes: int = 10,
         repeat_after_minutes: int | None = None,
     ) -> Reminder:
-        if not 1 <= len(title) <= TITLE_MAX_LENGTH:
-            raise ValidationError("title must be 1..120 characters")
-        if note is not None and len(note) > NOTE_MAX_LENGTH:
-            raise ValidationError("note must be at most 1000 characters")
-        ZoneInfo(timezone)  # raises for an unknown IANA name
+        clean_title = normalize_reminder_title(title)
+        clean_note = normalize_note(note)
+        try:
+            tz = ZoneInfo(timezone)  # raises for an unknown IANA name
+        except (ValueError, KeyError) as exc:
+            raise ValidationError(f"unknown timezone: {timezone!r}") from exc
+
+        # A schedule with nothing ahead of it is never materialised, so the row
+        # would look alive and never fire (tech.md 18.6).
+        begins_at = starts_at or self._clock.now()
+        if first_fire_at(schedule, tz, begins_at) is None:
+            raise ScheduleExhaustedError("schedule has no firing moment ahead")
 
         category = await self._categories.get_by_id(category_id)
         if category is None or category.archived_at is not None:
@@ -56,13 +66,13 @@ class RemindersService:
             Reminder(
                 owner_id=owner_id,
                 category_id=category_id,
-                title=title,
-                note=note,
+                title=clean_title,
+                note=clean_note,
                 status=ReminderStatus.ACTIVE,
                 schedule_kind=schedule.kind,
                 schedule=dump_schedule(schedule),
                 timezone=timezone,
-                starts_at=starts_at or self._clock.now(),
+                starts_at=begins_at,
                 ends_at=ends_at,
                 max_occurrences=max_occurrences,
                 snooze_minutes=snooze_minutes,
@@ -79,6 +89,16 @@ class RemindersService:
         )
         await self._session.commit()
         return reminder
+
+    def next_fire(self, reminder: Reminder) -> datetime | None:
+        """When the reminder fires next, for a card drawn before the planner ran.
+
+        Read from the schedule rather than from `occurrences`: right after
+        creation the queue is still empty, and the card would say "not
+        scheduled" about a reminder that is scheduled.
+        """
+        after = max(reminder.starts_at, self._clock.now())
+        return first_fire_at(parse_schedule(reminder.schedule), ZoneInfo(reminder.timezone), after)
 
     async def get_owned(self, owner_id: int, reminder_id: int) -> Reminder:
         reminder = await self._reminders.get_by_id(reminder_id)
