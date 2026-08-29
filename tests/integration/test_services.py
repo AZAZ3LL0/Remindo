@@ -1,11 +1,12 @@
 """Acceptance criteria of the user-facing services."""
 
 from datetime import time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 import sqlalchemy as sa
 
-from app.db.models import Category, Reminder, User
+from app.db.models import Category, Occurrence, Reminder, User
 from app.domain.categories import CODE_PATTERN
 from app.domain.contracts import ReminderStatus
 from app.domain.errors import (
@@ -13,11 +14,14 @@ from app.domain.errors import (
     CategoryInUseError,
     NotFoundError,
     PermissionDeniedError,
+    ScheduleExhaustedError,
     ValidationError,
 )
+from app.domain.reminders import build_once_schedule, local_today
 from app.domain.schedules import DailySchedule
 from app.services.categories import CategoriesService
 from app.services.onboarding import OnboardingService
+from app.services.planning import PlanningService
 from app.services.reminders import RemindersService
 from tests.conftest import FROZEN_NOW
 
@@ -514,6 +518,74 @@ class TestReminders:
                 schedule=DailySchedule(times=["08:00"]),
                 timezone=user.timezone,
             )
+
+    async def test_a_one_off_reminder_stores_the_moment_the_wizard_built(
+        self, db_session, fake_clock, user_factory, category_factory
+    ):
+        user = await user_factory(timezone="Europe/Moscow")
+        category = await category_factory()
+        await db_session.commit()
+        tomorrow = local_today(FROZEN_NOW, ZoneInfo(user.timezone)) + timedelta(days=1)
+
+        reminder = await RemindersService(db_session, fake_clock).create(
+            owner_id=user.id,
+            category_id=category.id,
+            title="  Сдать   отчёт  ",
+            schedule=build_once_schedule(tomorrow, time(9, 0)),
+            timezone=user.timezone,
+        )
+
+        assert reminder.schedule == {"kind": "once", "at": f"{tomorrow.isoformat()}T09:00"}
+        assert reminder.title == "Сдать отчёт"
+
+    async def test_a_one_off_reminder_in_the_past_is_refused(
+        self, db_session, fake_clock, user_factory, category_factory
+    ):
+        """The planner would never materialise it, so the row must not appear."""
+        user = await user_factory(timezone="Europe/Moscow")
+        category = await category_factory()
+        await db_session.commit()
+        yesterday = local_today(FROZEN_NOW, ZoneInfo(user.timezone)) - timedelta(days=1)
+
+        with pytest.raises(ScheduleExhaustedError):
+            await RemindersService(db_session, fake_clock).create(
+                owner_id=user.id,
+                category_id=category.id,
+                title="Вчерашнее",
+                schedule=build_once_schedule(yesterday, time(9, 0)),
+                timezone=user.timezone,
+            )
+
+        assert await db_session.scalar(sa.select(sa.func.count()).select_from(Reminder)) == 0
+
+    async def test_the_card_and_the_planner_name_the_same_first_moment(
+        self, db_session, fake_clock, user_factory, category_factory
+    ):
+        """The card is drawn before the queue exists; it must not promise a
+        moment the planner then schedules somewhere else."""
+        user = await user_factory(timezone="Europe/Moscow")
+        category = await category_factory()
+        await db_session.commit()
+        service = RemindersService(db_session, fake_clock)
+
+        reminder = await service.create(
+            owner_id=user.id,
+            category_id=category.id,
+            title="Зарядка",
+            schedule=DailySchedule(times=["08:00", "20:00"]),
+            timezone=user.timezone,
+        )
+        promised = service.next_fire(reminder)
+        await PlanningService(
+            db_session, fake_clock, horizon_hours=48, occurrence_ttl_minutes=180
+        ).materialize()
+
+        first_planned = await db_session.scalar(
+            sa.select(sa.func.min(Occurrence.scheduled_for)).where(
+                Occurrence.reminder_id == reminder.id
+            )
+        )
+        assert promised == first_planned
 
     async def test_creation_rejects_an_unknown_category(self, db_session, fake_clock, user_factory):
         user = await user_factory()
