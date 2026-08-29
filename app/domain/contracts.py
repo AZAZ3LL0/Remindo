@@ -104,6 +104,12 @@ TERMINAL_OCCURRENCE_STATUSES: Final = frozenset(
     }
 )
 
+#: Category limits mirrored from the schema (tech.md 4.2, 17.2). The domain
+#: rejects a value before the database gets the chance to.
+CATEGORY_TITLE_MAX_LENGTH: Final = 64
+CATEGORY_CODE_PATTERN: Final = r"^[a-z0-9_]{2,32}$"
+DEFAULT_CATEGORY_EMOJI: Final = "\U0001f514"
+
 #: Timezones offered as buttons during onboarding. Any other zone arrives as
 #: manual IANA input, so this list stays short instead of complete.
 POPULAR_TIMEZONES: Final[tuple[str, ...]] = (
