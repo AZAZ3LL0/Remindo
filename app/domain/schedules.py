@@ -7,7 +7,7 @@ reads a clock.
 
 import re
 from datetime import date, datetime, time
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Final, Literal
 
 from pydantic import (
     BaseModel,
@@ -19,6 +19,10 @@ from pydantic import (
 )
 
 from app.domain.contracts import ScheduleKind
+
+#: How many wall-clock times one schedule may carry (tech.md 5). Named so the
+#: wizard can refuse a thirteenth time with the same number the model enforces.
+TIMES_MAX_LENGTH: Final = 12
 
 _HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -96,7 +100,7 @@ class _Base(BaseModel):
 
 
 class _WithTimes(_Base):
-    times: Annotated[list[LocalTime], Field(min_length=1, max_length=12)]
+    times: Annotated[list[LocalTime], Field(min_length=1, max_length=TIMES_MAX_LENGTH)]
 
     @field_validator("times", mode="before")
     @classmethod

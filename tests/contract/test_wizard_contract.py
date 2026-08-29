@@ -22,6 +22,7 @@ from app.bot.keyboards.wizard import (
 )
 from app.domain.contracts import ScheduleKind
 from app.domain.schedules import (
+    TIMES_MAX_LENGTH,
     dump_schedule,
     format_local_date,
     parse_local_date,
@@ -144,6 +145,19 @@ def test_the_date_atom_needs_no_packing():
 def test_the_wizard_payload_validates_against_the_schedule_contract(payload):
     """What the wizard writes into JSONB is what tech.md 5 accepts."""
     assert dump_schedule(parse_schedule(payload)) == payload
+
+
+def test_the_named_limit_is_the_limit_the_model_enforces():
+    """The wizard quotes this number at the user; the model must mean it."""
+    times = [f"{hour:02d}:00" for hour in range(TIMES_MAX_LENGTH + 1)]
+
+    parse_schedule({"kind": "daily", "times": times[:TIMES_MAX_LENGTH]})
+    with pytest.raises(ValueError):
+        parse_schedule({"kind": "daily", "times": times})
+
+
+def test_the_daily_picker_never_offers_more_than_the_schedule_holds():
+    assert len(DAILY_TIME_PRESETS) <= TIMES_MAX_LENGTH
 
 
 @pytest.mark.parametrize("raw", ["2026-9-1", "01.09.2026", "20260901", "2026-09-01T07:30", ""])
