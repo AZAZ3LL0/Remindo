@@ -5,9 +5,11 @@ from datetime import time, timedelta
 import pytest
 import sqlalchemy as sa
 
-from app.db.models import Reminder, User
+from app.db.models import Category, Reminder, User
+from app.domain.categories import CODE_PATTERN
 from app.domain.contracts import ReminderStatus
 from app.domain.errors import (
+    CategoryExistsError,
     CategoryInUseError,
     NotFoundError,
     PermissionDeniedError,
@@ -196,6 +198,8 @@ class TestOnboardingIsIdempotent:
 
 
 class TestCategories:
+    """Acceptance criteria of S2: own categories on top of the presets."""
+
     async def test_list_contains_system_presets_and_own_categories(
         self, db_session, fake_clock, user_factory, category_factory
     ):
@@ -228,21 +232,88 @@ class TestCategories:
 
         assert category.id not in {item.id for item in listed}
 
-    async def test_creation_validates_the_slug_and_the_title(
+    async def test_creation_keeps_the_title_and_derives_a_valid_code(
+        self, db_session, fake_clock, user_factory
+    ):
+        """The user types a title and an emoji; the slug is not their problem."""
+        user = await user_factory()
+
+        created = await CategoriesService(db_session, fake_clock).create(user.id, "Чтение", "📚")
+
+        assert (created.title, created.emoji) == ("Чтение", "📚")
+        assert created.is_system is False
+        assert CODE_PATTERN.match(created.code)
+
+    async def test_creation_normalises_the_title_before_storing_it(
+        self, db_session, fake_clock, user_factory
+    ):
+        user = await user_factory()
+
+        created = await CategoriesService(db_session, fake_clock).create(
+            user.id, "  Уборка   дома ", "🧹"
+        )
+
+        assert created.title == "Уборка дома"
+
+    @pytest.mark.parametrize("title", ["", "   ", "я" * 65])
+    async def test_creation_rejects_an_unusable_title(
+        self, db_session, fake_clock, user_factory, title
+    ):
+        user = await user_factory()
+
+        with pytest.raises(ValidationError):
+            await CategoriesService(db_session, fake_clock).create(user.id, title, "📚")
+
+    @pytest.mark.parametrize("emoji", ["", "📚📌", "📚 ", "два слова"])
+    async def test_creation_demands_exactly_one_emoji(
+        self, db_session, fake_clock, user_factory, emoji
+    ):
+        user = await user_factory()
+
+        if emoji == "📚 ":
+            assert (
+                await CategoriesService(db_session, fake_clock).create(user.id, "Хобби", emoji)
+            ).emoji == "📚"
+            return
+
+        with pytest.raises(ValidationError):
+            await CategoriesService(db_session, fake_clock).create(user.id, "Хобби", emoji)
+
+    async def test_a_duplicate_title_is_refused_whatever_the_case(
         self, db_session, fake_clock, user_factory
     ):
         user = await user_factory()
         service = CategoriesService(db_session, fake_clock)
+        await service.create(user.id, "Спорт", "🏃")
 
-        created = await service.create(user.id, "reading", "Чтение", "📚")
-        assert created.is_system is False
+        with pytest.raises(CategoryExistsError):
+            await service.create(user.id, "  спорт ", "🧘")
 
-        with pytest.raises(ValidationError):
-            await service.create(user.id, "Reading!", "Чтение", "📚")
-        with pytest.raises(ValidationError):
-            await service.create(user.id, "reading2", "", "📚")
-        with pytest.raises(ValidationError):
-            await service.create(user.id, "reading", "Дубль", "📚")
+    async def test_two_different_titles_that_share_a_slug_both_survive(
+        self, db_session, fake_clock, user_factory
+    ):
+        """A code collision is the service's problem, not the user's."""
+        user = await user_factory()
+        service = CategoriesService(db_session, fake_clock)
+
+        first = await service.create(user.id, "Спорт", "🏃")
+        second = await service.create(user.id, "спорт!", "🧘")
+
+        assert first.code != second.code
+        assert CODE_PATTERN.match(second.code)
+
+    async def test_a_code_held_by_an_archived_category_is_not_reused(
+        self, db_session, fake_clock, user_factory
+    ):
+        """The unique index counts archived rows, so the slug stays taken."""
+        user = await user_factory()
+        service = CategoriesService(db_session, fake_clock)
+        archived = await service.create(user.id, "Спорт", "🏃")
+        await service.archive(user.id, archived.id)
+
+        created = await service.create(user.id, "Спорт", "🏃")
+
+        assert created.code != archived.code
 
     async def test_rename_only_touches_own_categories(
         self, db_session, fake_clock, user_factory, category_factory
@@ -259,7 +330,28 @@ class TestCategories:
         with pytest.raises(PermissionDeniedError):
             await service.rename(user.id, system.id, "Нельзя")
 
-    async def test_archiving_is_blocked_while_reminders_are_active(
+    async def test_rename_keeps_the_code(self, db_session, fake_clock, user_factory):
+        """Reminders point at the row, so the identity must not drift."""
+        user = await user_factory()
+        service = CategoriesService(db_session, fake_clock)
+        created = await service.create(user.id, "Спорт", "🏃")
+
+        renamed = await service.rename(user.id, created.id, "Зарядка")
+
+        assert (renamed.title, renamed.code) == ("Зарядка", created.code)
+
+    async def test_rename_refuses_a_title_another_category_already_holds(
+        self, db_session, fake_clock, user_factory
+    ):
+        user = await user_factory()
+        service = CategoriesService(db_session, fake_clock)
+        await service.create(user.id, "Спорт", "🏃")
+        other = await service.create(user.id, "Чтение", "📚")
+
+        with pytest.raises(CategoryExistsError):
+            await service.rename(user.id, other.id, "спорт")
+
+    async def test_archiving_is_blocked_while_reminders_are_alive(
         self, db_session, fake_clock, user_factory, category_factory, reminder_factory
     ):
         user = await user_factory()
@@ -274,7 +366,30 @@ class TestCategories:
         reminder.status = ReminderStatus.ARCHIVED
         await db_session.commit()
 
-        assert (await service.archive(user.id, category.id)).archived_at == FROZEN_NOW
+        result = await service.archive(user.id, category.id)
+        assert (result.applied, result.category.archived_at) == (True, FROZEN_NOW)
+
+    async def test_a_paused_reminder_still_blocks_archiving(
+        self, db_session, fake_clock, user_factory, category_factory, reminder_factory
+    ):
+        """Paused means resumable, so the category is still in use."""
+        user = await user_factory()
+        category = await category_factory(owner_id=user.id, code="paused", is_system=False)
+        await reminder_factory(owner=user, category=category, status=ReminderStatus.PAUSED)
+        await db_session.commit()
+
+        with pytest.raises(CategoryInUseError):
+            await CategoriesService(db_session, fake_clock).archive(user.id, category.id)
+
+    async def test_a_system_category_cannot_be_archived(
+        self, db_session, fake_clock, user_factory, category_factory
+    ):
+        user = await user_factory()
+        system = await category_factory(code="system_two")
+        await db_session.commit()
+
+        with pytest.raises(PermissionDeniedError):
+            await CategoriesService(db_session, fake_clock).archive(user.id, system.id)
 
     async def test_foreign_category_is_not_visible(
         self, db_session, fake_clock, user_factory, category_factory
@@ -287,11 +402,76 @@ class TestCategories:
         with pytest.raises(PermissionDeniedError):
             await CategoriesService(db_session, fake_clock).get_for_user(user.id, category.id)
 
+        with pytest.raises(PermissionDeniedError):
+            await CategoriesService(db_session, fake_clock).archive(user.id, category.id)
+
     async def test_missing_category_is_reported(self, db_session, fake_clock, user_factory):
         user = await user_factory()
 
         with pytest.raises(NotFoundError):
             await CategoriesService(db_session, fake_clock).get_for_user(user.id, 10**9)
+
+    async def test_reminder_counts_explain_a_refusal(
+        self, db_session, fake_clock, user_factory, category_factory, reminder_factory
+    ):
+        user = await user_factory()
+        busy = await category_factory(owner_id=user.id, code="counted", is_system=False)
+        empty = await category_factory(owner_id=user.id, code="empty", is_system=False)
+        await reminder_factory(owner=user, category=busy)
+        await reminder_factory(owner=user, category=busy, status=ReminderStatus.ARCHIVED)
+        await db_session.commit()
+
+        counts = await CategoriesService(db_session, fake_clock).counts_for([busy, empty])
+
+        assert counts.get(busy.id) == 1
+        assert counts.get(empty.id, 0) == 0
+
+
+class TestCategoriesAreIdempotent:
+    """Every category reaction repeated twice leaves exactly one effect."""
+
+    async def test_creating_the_same_category_twice_creates_one_row(
+        self, db_session, fake_clock, user_factory
+    ):
+        user = await user_factory()
+        service = CategoriesService(db_session, fake_clock)
+
+        await service.create(user.id, "Спорт", "🏃")
+        with pytest.raises(CategoryExistsError):
+            await service.create(user.id, "Спорт", "🏃")
+
+        count = await db_session.scalar(
+            sa.select(sa.func.count())
+            .select_from(Category)
+            .where(Category.owner_id == user.id, Category.title == "Спорт")
+        )
+        assert count == 1
+
+    async def test_archiving_twice_archives_once(self, db_session, fake_clock, user_factory):
+        user = await user_factory()
+        service = CategoriesService(db_session, fake_clock)
+        created = await service.create(user.id, "Спорт", "🏃")
+
+        first = await service.archive(user.id, created.id)
+        fake_clock.advance(timedelta(days=1))
+        second = await service.archive(user.id, created.id)
+
+        assert (first.applied, second.applied) == (True, False)
+        assert second.category.archived_at == FROZEN_NOW
+
+    async def test_renaming_twice_settles_on_one_title(self, db_session, fake_clock, user_factory):
+        user = await user_factory()
+        service = CategoriesService(db_session, fake_clock)
+        created = await service.create(user.id, "Спорт", "🏃")
+
+        await service.rename(user.id, created.id, "Зарядка")
+        second = await service.rename(user.id, created.id, "Зарядка")
+
+        assert second.title == "Зарядка"
+        count = await db_session.scalar(
+            sa.select(sa.func.count()).select_from(Category).where(Category.owner_id == user.id)
+        )
+        assert count == 1
 
 
 class TestReminders:
