@@ -6,8 +6,8 @@ reads a clock.
 """
 
 import re
-from datetime import datetime, time
-from typing import Annotated, Any, Literal
+from datetime import date, datetime, time
+from typing import Annotated, Any, Final, Literal
 
 from pydantic import (
     BaseModel,
@@ -20,7 +20,12 @@ from pydantic import (
 
 from app.domain.contracts import ScheduleKind
 
+#: How many wall-clock times one schedule may carry (tech.md 5). Named so the
+#: wizard can refuse a thirteenth time with the same number the model enforces.
+TIMES_MAX_LENGTH: Final = 12
+
 _HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _LOCAL_DT = re.compile(r"^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):([0-5]\d)$")
 
 
@@ -43,6 +48,26 @@ def parse_hhmm(value: Any) -> time:
 def format_hhmm(value: time) -> str:
     """Inverse of `parse_hhmm`."""
     return f"{value.hour:02d}:{value.minute:02d}"
+
+
+def parse_local_date(value: Any) -> date:
+    """Calendar date as `YYYY-MM-DD`. Raises ValueError on anything else.
+
+    Public for the same reason `parse_hhmm` is: the product speaks one date
+    format, in the `once` payload and in manual input alike (tech.md 18.3).
+    """
+    if isinstance(value, datetime):
+        raise ValueError("date must not carry a time")
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str) or not _ISO_DATE.match(value):
+        raise ValueError("date must match YYYY-MM-DD")
+    return date.fromisoformat(value)
+
+
+def format_local_date(value: date) -> str:
+    """Inverse of `parse_local_date`."""
+    return value.isoformat()
 
 
 def _parse_local_datetime(value: Any) -> datetime:
@@ -75,7 +100,7 @@ class _Base(BaseModel):
 
 
 class _WithTimes(_Base):
-    times: Annotated[list[LocalTime], Field(min_length=1, max_length=12)]
+    times: Annotated[list[LocalTime], Field(min_length=1, max_length=TIMES_MAX_LENGTH)]
 
     @field_validator("times", mode="before")
     @classmethod
