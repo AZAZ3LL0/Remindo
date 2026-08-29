@@ -9,7 +9,3 @@ class ReminderWizard(StatesGroup):
     every_minutes = State()
     window = State()
     confirm = State()
-
-
-class Onboarding(StatesGroup):
-    timezone = State()

@@ -3,8 +3,9 @@
 from datetime import time, timedelta
 
 import pytest
+import sqlalchemy as sa
 
-from app.db.models import Reminder
+from app.db.models import Reminder, User
 from app.domain.contracts import ReminderStatus
 from app.domain.errors import (
     CategoryInUseError,
@@ -100,6 +101,98 @@ class TestOnboarding:
     async def test_unknown_user_is_reported(self, db_session, fake_clock):
         with pytest.raises(NotFoundError):
             await onboarding(db_session, fake_clock).set_language(10**9, "en")
+
+    async def test_equal_quiet_bounds_are_refused_and_leave_the_row_alone(
+        self, db_session, fake_clock, user_factory
+    ):
+        """An interval that silences nothing must not look saved."""
+        user = await user_factory(quiet_start=time(23, 0), quiet_end=time(7, 0))
+        await db_session.commit()
+        service = onboarding(db_session, fake_clock)
+
+        with pytest.raises(ValidationError):
+            await service.set_quiet_hours(user.id, time(22, 0), time(22, 0))
+
+        await db_session.refresh(user)
+        assert (user.quiet_start, user.quiet_end) == (time(23, 0), time(7, 0))
+
+    async def test_rejected_timezone_leaves_the_row_alone(
+        self, db_session, fake_clock, user_factory
+    ):
+        user = await user_factory(timezone="Europe/Moscow")
+        await db_session.commit()
+
+        with pytest.raises(ValidationError):
+            await onboarding(db_session, fake_clock).set_timezone(user.id, "Mars/Olympus")
+
+        await db_session.refresh(user)
+        assert user.timezone == "Europe/Moscow"
+        assert user.onboarded_at is None
+
+
+class TestOnboardingIsIdempotent:
+    """Every settings reaction repeated twice leaves exactly one effect."""
+
+    async def test_repeated_first_contact_creates_one_user(self, db_session, fake_clock):
+        service = onboarding(db_session, fake_clock)
+
+        await service.ensure_user(4242, 4242, first_name="Самат")
+        await service.ensure_user(4242, 4242, first_name="Самат")
+
+        count = await db_session.scalar(
+            sa.select(sa.func.count()).select_from(User).where(User.tg_user_id == 4242)
+        )
+        assert count == 1
+
+    async def test_repeated_timezone_choice_stamps_onboarding_once(
+        self, db_session, fake_clock, user_factory
+    ):
+        """Changing the zone later must not read as a fresh onboarding."""
+        user = await user_factory()
+        await db_session.commit()
+        service = onboarding(db_session, fake_clock)
+
+        first = await service.set_timezone(user.id, "Asia/Tbilisi")
+        onboarded_at = first.onboarded_at
+        fake_clock.advance(timedelta(days=3))
+        second = await service.set_timezone(user.id, "Asia/Tbilisi")
+
+        assert onboarded_at == FROZEN_NOW
+        assert second.onboarded_at == onboarded_at
+
+    async def test_repeated_language_choice_settles_on_one_value(
+        self, db_session, fake_clock, user_factory
+    ):
+        user = await user_factory()
+        await db_session.commit()
+        service = onboarding(db_session, fake_clock)
+
+        await service.set_language(user.id, "en")
+        second = await service.set_language(user.id, "en")
+
+        assert second.language == "en"
+
+    async def test_repeated_quiet_interval_settles_on_one_value(
+        self, db_session, fake_clock, user_factory
+    ):
+        user = await user_factory()
+        await db_session.commit()
+        service = onboarding(db_session, fake_clock)
+
+        await service.set_quiet_hours(user.id, time(23, 0), time(7, 0))
+        second = await service.set_quiet_hours(user.id, time(23, 0), time(7, 0))
+
+        assert (second.quiet_start, second.quiet_end) == (time(23, 0), time(7, 0))
+
+    async def test_repeated_switch_off_stays_off(self, db_session, fake_clock, user_factory):
+        user = await user_factory(quiet_start=time(23, 0), quiet_end=time(7, 0))
+        await db_session.commit()
+        service = onboarding(db_session, fake_clock)
+
+        await service.set_quiet_hours(user.id, None, None)
+        second = await service.set_quiet_hours(user.id, None, None)
+
+        assert (second.quiet_start, second.quiet_end) == (None, None)
 
 
 class TestCategories:

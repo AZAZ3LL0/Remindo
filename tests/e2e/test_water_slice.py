@@ -4,7 +4,7 @@ dispatcher -> FakeBotGateway -> reaction -> statistics."""
 import pytest_asyncio
 import sqlalchemy as sa
 
-from app.bot.callbacks import CatCb, ReactCb, WizCb
+from app.bot.callbacks import CatCb, ReactCb, SetCb, WizCb
 from app.db.models import Category, Delivery, DeliveryAction, Occurrence, Reminder, User
 from app.domain.contracts import ActionKind, DeliveryStatus, OccurrenceStatus
 from app.services.dispatching import DispatchingService
@@ -39,7 +39,7 @@ async def test_water_slice_from_start_to_statistics(
     assert user is not None
     assert "таймзоне" in telegram.sent_messages[-1].text
 
-    await feed.press(WizCb(step="tz", value="Europe/Moscow").pack())
+    await feed.press(SetCb(field="tz", value="Europe/Moscow").pack())
     user = await fetch_one(session_factory, User, tg_user_id=TG_USER_ID)
     assert user.timezone == "Europe/Moscow"
     assert user.onboarded_at is not None
