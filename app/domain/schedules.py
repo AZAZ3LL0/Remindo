@@ -24,7 +24,12 @@ _HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 _LOCAL_DT = re.compile(r"^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):([0-5]\d)$")
 
 
-def _parse_hhmm(value: Any) -> time:
+def parse_hhmm(value: Any) -> time:
+    """Wall-clock `HH:MM` in 24-hour format. Raises ValueError on anything else.
+
+    Public because every wall-clock time in the product speaks this one format:
+    schedules, quiet hours and manual input all parse through here.
+    """
     if isinstance(value, time):
         if value.tzinfo is not None or value.second or value.microsecond:
             raise ValueError("time must be naive and minute-precise")
@@ -35,7 +40,8 @@ def _parse_hhmm(value: Any) -> time:
     return time(int(hour), int(minute))
 
 
-def _format_hhmm(value: time) -> str:
+def format_hhmm(value: time) -> str:
+    """Inverse of `parse_hhmm`."""
     return f"{value.hour:02d}:{value.minute:02d}"
 
 
@@ -56,7 +62,7 @@ def _format_local_datetime(value: datetime) -> str:
 LocalTime = Annotated[
     time,
     Field(json_schema_extra={"format": "HH:MM"}),
-    PlainSerializer(_format_hhmm, return_type=str),
+    PlainSerializer(format_hhmm, return_type=str),
 ]
 LocalDateTime = Annotated[
     datetime,
@@ -75,7 +81,7 @@ class _WithTimes(_Base):
     @classmethod
     def _coerce_times(cls, value: Any) -> Any:
         if isinstance(value, list):
-            return [_parse_hhmm(item) for item in value]
+            return [parse_hhmm(item) for item in value]
         return value
 
     @field_validator("times", mode="after")
@@ -103,7 +109,7 @@ class IntervalSchedule(_Base):
     @field_validator("window_start", "window_end", mode="before")
     @classmethod
     def _coerce_window(cls, value: Any) -> time:
-        return _parse_hhmm(value)
+        return parse_hhmm(value)
 
 
 class DailySchedule(_WithTimes):
