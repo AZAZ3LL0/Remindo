@@ -3,12 +3,12 @@
 Declared once, reused everywhere.
 """
 
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from hypothesis import strategies as st
 
-from app.domain.contracts import CATEGORY_TITLE_MAX_LENGTH
+from app.domain.contracts import CATEGORY_TITLE_MAX_LENGTH, REMINDER_TITLE_MAX_LENGTH
 from app.domain.schedules import (
     DailySchedule,
     IntervalSchedule,
@@ -114,3 +114,12 @@ category_titles = (
     .map(lambda value: " ".join(value.split()))
     .filter(lambda value: 1 <= len(value) <= CATEGORY_TITLE_MAX_LENGTH)
 )
+
+reminder_titles = (
+    st.text(min_size=1, max_size=REMINDER_TITLE_MAX_LENGTH)
+    .map(lambda value: " ".join(value.split()))
+    .filter(lambda value: 1 <= len(value) <= REMINDER_TITLE_MAX_LENGTH)
+)
+
+#: Calendar days, wide enough to straddle leap years and month ends.
+local_dates = st.dates(min_value=date(2024, 1, 1), max_value=date(2030, 12, 31))
