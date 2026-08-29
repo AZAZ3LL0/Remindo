@@ -95,7 +95,14 @@ def next_free_code(base: str, taken: Collection[str]) -> str:
 
 
 def _fallback_code(title: str) -> str:
-    digest = hashlib.blake2s(title.encode(), digest_size=FALLBACK_DIGEST_LENGTH).hexdigest()
+    """Digest of the title, folded the same way the slug path folds it.
+
+    Hashing the raw string would hand `Спорт` and `спорт  ` two different
+    codes while the slug path gives them one, and the rule would stop holding
+    exactly where it is least visible.
+    """
+    folded = " ".join(title.split()).casefold()
+    digest = hashlib.blake2s(folded.encode(), digest_size=FALLBACK_DIGEST_LENGTH).hexdigest()
     return f"{FALLBACK_CODE_PREFIX}{digest[:FALLBACK_DIGEST_LENGTH]}"
 
 
