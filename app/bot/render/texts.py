@@ -83,6 +83,67 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
     "lang.en": {"ru": "Английский", "en": "English"},
     "categories.title": {"ru": "Категории", "en": "Categories"},
     "categories.empty": {"ru": "Категорий пока нет.", "en": "No categories yet."},
+    "categories.item": {"ru": "{index}. {emoji} {title}", "en": "{index}. {emoji} {title}"},
+    "categories.card": {
+        "ru": "{emoji} <b>{title}</b>\nКод: {code}\nТип: {kind}\nНапоминаний: {reminders}",
+        "en": "{emoji} <b>{title}</b>\nCode: {code}\nKind: {kind}\nReminders: {reminders}",
+    },
+    "categories.kind_system": {"ru": "системная", "en": "system"},
+    "categories.kind_own": {"ru": "своя", "en": "yours"},
+    "categories.ask_title": {
+        "ru": "Как назвать категорию?",
+        "en": "What should the category be called?",
+    },
+    "categories.ask_emoji": {
+        "ru": "Выбери эмодзи или пришли своё.",
+        "en": "Pick an emoji or send your own.",
+    },
+    "categories.emoji_manual": {"ru": "Пришли одно эмодзи.", "en": "Send a single emoji."},
+    "categories.created": {
+        "ru": "Категория {emoji} {title} создана.",
+        "en": "Category {emoji} {title} created.",
+    },
+    "categories.ask_new_title": {
+        "ru": "Новое название категории?",
+        "en": "New title for the category?",
+    },
+    "categories.renamed": {
+        "ru": "Категория переименована: {title}.",
+        "en": "Category renamed: {title}.",
+    },
+    "categories.confirm_archive": {
+        "ru": "Убрать категорию {title} в архив? Напоминания в ней останутся.",
+        "en": "Archive category {title}? Its reminders stay where they are.",
+    },
+    "categories.archived": {
+        "ru": "Категория {title} в архиве.",
+        "en": "Category {title} archived.",
+    },
+    "categories.already_archived": {
+        "ru": "Категория уже в архиве.",
+        "en": "The category is already archived.",
+    },
+    "categories.in_use": {
+        "ru": "В категории есть незавершённые напоминания. Сначала разберись с ними.",
+        "en": "The category still has live reminders. Deal with them first.",
+    },
+    "categories.system_readonly": {
+        "ru": "Системную категорию менять нельзя.",
+        "en": "A system category is read-only.",
+    },
+    "categories.title_invalid": {
+        "ru": "Название от 1 до 64 символов.",
+        "en": "Title must be 1 to 64 characters.",
+    },
+    "categories.emoji_invalid": {
+        "ru": "Нужно ровно одно эмодзи.",
+        "en": "Exactly one emoji is required.",
+    },
+    "categories.duplicate": {
+        "ru": "Категория с таким названием уже есть.",
+        "en": "A category with this title already exists.",
+    },
+    "categories.cancelled": {"ru": "Отменено.", "en": "Cancelled."},
     "wizard.pick_category": {"ru": "Выбери категорию.", "en": "Pick a category."},
     "wizard.ask_title": {
         "ru": "Как назвать напоминание?",
@@ -156,6 +217,8 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
     "btn.manual_input": {"ru": "Ввести вручную", "en": "Enter manually"},
     "btn.ready": {"ru": "Готово", "en": "Done"},
     "btn.back": {"ru": "‹ Назад", "en": "‹ Back"},
+    "btn.rename": {"ru": "Переименовать", "en": "Rename"},
+    "btn.archive": {"ru": "В архив", "en": "Archive"},
     "btn.timezone": {"ru": "Таймзона", "en": "Timezone"},
     "btn.language": {"ru": "Язык", "en": "Language"},
     "btn.quiet": {"ru": "Тихие часы", "en": "Quiet hours"},
