@@ -147,9 +147,7 @@ def test_the_horizon_only_moves_forward(schedule, tz, case):
 def test_a_truncated_cycle_loses_no_moment(schedule, tz, case, batch_limit):
     """What the limit cut off stays inside the next cycle's window."""
     bounds, horizon_end = case
-    window = plan_window(
-        bounds, horizon_end=horizon_end, fired_count=0, batch_limit=batch_limit
-    )
+    window = plan_window(bounds, horizon_end=horizon_end, fired_count=0, batch_limit=batch_limit)
     assume(not window.is_empty)
     moments = next_occurrences(
         schedule, tz, after=window.after, until=window.until, limit=window.limit
@@ -224,9 +222,7 @@ def test_a_one_shot_moment_left_behind_exhausts_the_reminder():
     """The minute has passed, so no cycle will ever materialise it again."""
     starts_at = datetime(2026, 6, 1, 12, tzinfo=UTC)
     schedule = OnceSchedule(at="2026-05-30T08:00")
-    bounds = PlanBounds(
-        starts_at=starts_at, last_moment=last_moment_of(schedule, ZoneInfo("UTC"))
-    )
+    bounds = PlanBounds(starts_at=starts_at, last_moment=last_moment_of(schedule, ZoneInfo("UTC")))
     window = plan_window(bounds, horizon_end=starts_at + timedelta(hours=48), fired_count=0)
 
     outcome = settle_plan(bounds, window, [], fired_count=0)

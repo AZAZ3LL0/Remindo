@@ -15,12 +15,16 @@ from app.db.repositories.occurrences import OccurrencesRepository
 from app.db.repositories.reminders import RecipientsRepository, RemindersRepository
 from app.db.repositories.users import UsersRepository
 from app.domain.contracts import OccurrenceStatus, ReminderStatus
+from app.domain.planning import (
+    PlanBounds,
+    PlanWindow,
+    last_moment_of,
+    plan_window,
+    settle_plan,
+)
 from app.domain.quiet_hours import apply_quiet_hours
 from app.domain.recurrence import next_occurrences
-from app.domain.schedules import parse_schedule
-
-#: Upper bound on occurrences materialised for one reminder in one cycle.
-MAX_OCCURRENCES_PER_CYCLE = 500
+from app.domain.schedules import Schedule, parse_schedule
 
 _log = get_logger(__name__)
 
@@ -72,6 +76,8 @@ class PlanningService:
             created_deliveries += outcome[1]
             archived += outcome[2]
 
+        # One commit for the batch: a cycle that dies halfway leaves no reminder
+        # holding occurrences without deliveries (tech.md 7.1).
         await self._session.commit()
         result = PlanningResult(
             reminders_processed=len(due),
@@ -88,19 +94,53 @@ class PlanningService:
         tz = ZoneInfo(reminder.timezone)
         schedule = parse_schedule(reminder.schedule)
 
-        # `after` is exclusive, so the very first moment at starts_at survives.
-        after = reminder.planned_until or reminder.starts_at - timedelta(microseconds=1)
-        until = min(horizon_end, reminder.ends_at) if reminder.ends_at else horizon_end
-        limit = MAX_OCCURRENCES_PER_CYCLE
-        if reminder.max_occurrences is not None:
-            limit = min(limit, max(reminder.max_occurrences - reminder.fired_count, 0))
+        # Counted, not read from the column: the count is what the budget in
+        # tech.md 7.1 is spent against, and it survives a column that drifted.
+        fired_count = await self._occurrences.count_for_reminder(reminder.id)
+        bounds = PlanBounds(
+            starts_at=reminder.starts_at,
+            planned_until=reminder.planned_until,
+            ends_at=reminder.ends_at,
+            max_occurrences=reminder.max_occurrences,
+            last_moment=last_moment_of(schedule, tz),
+        )
+        window = plan_window(bounds, horizon_end=horizon_end, fired_count=fired_count)
+        moments = self._expand(schedule, tz, window)
 
-        moments = (
-            next_occurrences(schedule, tz, after=after, until=until, limit=limit)
-            if limit and until > after
-            else []
+        created_occurrences = await self._occurrences.insert_missing(
+            self._occurrence_rows(reminder, owner, tz, moments)
+        )
+        created_deliveries = await self._create_deliveries(reminder, moments)
+
+        fired_count += created_occurrences
+        outcome = settle_plan(bounds, window, moments, fired_count)
+        await self._reminders.set_planning_state(reminder.id, outcome.planned_until, fired_count)
+
+        archived = 0
+        if outcome.exhausted:
+            # Materialised occurrences keep their own schedule; archiving only
+            # stops the planner from looking at this reminder again.
+            await self._reminders.set_status(reminder.id, ReminderStatus.ARCHIVED)
+            archived = 1
+            _log.info(
+                "planner.reminder_exhausted",
+                reminder_id=reminder.id,
+                fired_count=fired_count,
+            )
+
+        return created_occurrences, created_deliveries, archived
+
+    @staticmethod
+    def _expand(schedule: Schedule, tz: ZoneInfo, window: PlanWindow) -> list[datetime]:
+        if window.is_empty:
+            return []
+        return next_occurrences(
+            schedule, tz, after=window.after, until=window.until, limit=window.limit
         )
 
+    def _occurrence_rows(
+        self, reminder: Reminder, owner: User, tz: ZoneInfo, moments: list[datetime]
+    ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for moment in moments:
             # Quiet hours belong to the owner: one occurrence, one fire_at.
@@ -114,19 +154,7 @@ class PlanningService:
                     "expires_at": fire_at + self._ttl,
                 }
             )
-
-        created_occurrences = await self._occurrences.insert_missing(rows)
-        created_deliveries = await self._create_deliveries(reminder, moments)
-
-        fired_count = await self._occurrences.count_for_reminder(reminder.id)
-        await self._reminders.set_planning_state(reminder.id, until, fired_count)
-
-        archived = 0
-        if self._is_exhausted(reminder, fired_count, until):
-            await self._reminders.set_status(reminder.id, ReminderStatus.ARCHIVED)
-            archived = 1
-
-        return created_occurrences, created_deliveries, archived
+        return rows
 
     async def _create_deliveries(self, reminder: Reminder, moments: list[datetime]) -> int:
         if not moments:
@@ -146,9 +174,3 @@ class PlanningService:
             for user_id in user_ids
         ]
         return await self._deliveries.insert_missing(rows)
-
-    @staticmethod
-    def _is_exhausted(reminder: Reminder, fired_count: int, planned_until: datetime) -> bool:
-        if reminder.max_occurrences is not None and fired_count >= reminder.max_occurrences:
-            return True
-        return reminder.ends_at is not None and planned_until >= reminder.ends_at
