@@ -48,6 +48,7 @@ async def test_water_slice_from_start_to_statistics(
     await feed.message("/new")
     await feed.press(CatCb(category_id=water_category, action="pick").pack())
     await feed.message("Пить воду")
+    await feed.press(WizCb(step="kind", value="interval").pack())
     await feed.press(WizCb(step="every", value="120").pack())
     await feed.press(WizCb(step="window", value="09002100").pack())
     await feed.press(WizCb(step="confirm", value="yes").pack())
