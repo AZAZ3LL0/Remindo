@@ -1,10 +1,14 @@
-"""Hypothesis strategies for dates and schedules. Declared once, reused everywhere."""
+"""Hypothesis strategies for dates, schedules and categories.
+
+Declared once, reused everywhere.
+"""
 
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from hypothesis import strategies as st
 
+from app.domain.contracts import CATEGORY_TITLE_MAX_LENGTH
 from app.domain.schedules import (
     DailySchedule,
     IntervalSchedule,
@@ -87,3 +91,26 @@ def ranges(draw: st.DrawFn, max_days: int = 14) -> tuple[datetime, datetime]:
     after = draw(utc_moments)
     span = draw(st.integers(min_value=1, max_value=max_days * 24 * 60))
     return after, after + timedelta(minutes=span)
+
+
+#: Single grapheme clusters, including the awkward shapes: a ZWJ family, a
+#: skin tone, a keycap, a flag and a letter with a combining accent.
+GRAPHEME_CLUSTERS: tuple[str, ...] = (
+    "\U0001f48a",
+    "\U0001f4a7",
+    "\U0001f3c3",
+    "\U0001f44d\U0001f3fd",
+    "\U0001f468‍\U0001f469‍\U0001f467",
+    "\U0001f1f7\U0001f1fa",
+    "1️⃣",
+    "é",
+)
+
+emoji_clusters = st.sampled_from(GRAPHEME_CLUSTERS)
+
+#: Anything a user may type as a title, collapsed the way the domain does it.
+category_titles = (
+    st.text(min_size=1, max_size=CATEGORY_TITLE_MAX_LENGTH)
+    .map(lambda value: " ".join(value.split()))
+    .filter(lambda value: 1 <= len(value) <= CATEGORY_TITLE_MAX_LENGTH)
+)
