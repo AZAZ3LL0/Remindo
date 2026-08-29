@@ -149,6 +149,10 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
         "ru": "Как назвать напоминание?",
         "en": "What should the reminder be called?",
     },
+    "wizard.pick_kind": {
+        "ru": "Какое расписание?",
+        "en": "Which schedule?",
+    },
     "wizard.ask_interval": {
         "ru": "Как часто напоминать?",
         "en": "How often should I remind you?",
@@ -157,7 +161,50 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
         "ru": "В какое окно дня напоминать?",
         "en": "During which part of the day?",
     },
-    "wizard.confirm": {
+    "wizard.ask_date": {"ru": "На какой день?", "en": "Which day?"},
+    "wizard.ask_at": {"ru": "Во сколько напомнить?", "en": "At what time?"},
+    "wizard.ask_times": {
+        "ru": "Во сколько напоминать каждый день? Выбрано: {times}",
+        "en": "At what times every day? Selected: {times}",
+    },
+    "wizard.times_none": {"ru": "пока ничего", "en": "nothing yet"},
+    "wizard.times_empty": {
+        "ru": "Выбери хотя бы одно время.",
+        "en": "Pick at least one time.",
+    },
+    "wizard.times_full": {
+        "ru": "Больше {limit} времён в день не бывает.",
+        "en": "No more than {limit} times a day.",
+    },
+    "wizard.date_manual": {
+        "ru": "Пришли дату в формате ГГГГ-ММ-ДД, например 2026-09-01.",
+        "en": "Send a date as YYYY-MM-DD, for example 2026-09-01.",
+    },
+    "wizard.date_invalid": {
+        "ru": "Не понял дату. Формат ГГГГ-ММ-ДД, от сегодня и не дальше чем на год.",
+        "en": "Unclear date. Use YYYY-MM-DD, from today and no more than a year ahead.",
+    },
+    "wizard.time_manual": {
+        "ru": "Пришли время в формате HH:MM, например 07:30.",
+        "en": "Send a time as HH:MM, for example 07:30.",
+    },
+    "wizard.time_invalid": {
+        "ru": "Не понял время. Формат HH:MM, например 07:30.",
+        "en": "Unclear time. Use HH:MM, for example 07:30.",
+    },
+    "wizard.past_moment": {
+        "ru": "Этот момент уже прошёл. Выбери время в будущем.",
+        "en": "That moment has passed. Pick a time in the future.",
+    },
+    "wizard.confirm_once": {
+        "ru": "Создать напоминание «{title}» на {at}?",
+        "en": "Create reminder «{title}» for {at}?",
+    },
+    "wizard.confirm_daily": {
+        "ru": "Создать напоминание «{title}» каждый день в {times}?",
+        "en": "Create reminder «{title}» every day at {times}?",
+    },
+    "wizard.confirm_interval": {
         "ru": (
             "Создать напоминание «{title}» каждые {every_minutes} мин "
             "с {window_start} до {window_end}?"
@@ -169,9 +216,9 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
     },
     "wizard.created": {"ru": "Напоминание создано.", "en": "Reminder created."},
     "wizard.cancelled": {"ru": "Отменено.", "en": "Cancelled."},
-    "wizard.title_too_long": {
-        "ru": "Слишком длинное название, максимум 120 символов.",
-        "en": "Title is too long, 120 characters max.",
+    "wizard.title_invalid": {
+        "ru": "Название от 1 до 120 символов.",
+        "en": "Title must be 1 to 120 characters.",
     },
     "reminder.message": {
         "ru": "{emoji} <b>{title}</b>\n{time}",
@@ -216,6 +263,11 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
     "btn.new_category": {"ru": "Новая категория", "en": "New category"},
     "btn.manual_input": {"ru": "Ввести вручную", "en": "Enter manually"},
     "btn.ready": {"ru": "Готово", "en": "Done"},
+    "btn.kind_once": {"ru": "Один раз", "en": "Once"},
+    "btn.kind_daily": {"ru": "Каждый день", "en": "Every day"},
+    "btn.kind_interval": {"ru": "По интервалу", "en": "By interval"},
+    "btn.today": {"ru": "Сегодня", "en": "Today"},
+    "btn.tomorrow": {"ru": "Завтра", "en": "Tomorrow"},
     "btn.back": {"ru": "‹ Назад", "en": "‹ Back"},
     "btn.rename": {"ru": "Переименовать", "en": "Rename"},
     "btn.archive": {"ru": "В архив", "en": "Archive"},

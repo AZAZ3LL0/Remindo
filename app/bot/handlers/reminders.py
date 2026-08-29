@@ -52,7 +52,7 @@ async def handle_category(
 async def handle_title(message: Message, user: User, state: FSMContext) -> None:
     title = (message.text or "").strip()
     if not 1 <= len(title) <= TITLE_MAX_LENGTH:
-        await message.answer(T("wizard.title_too_long", user.language))
+        await message.answer(T("wizard.title_invalid", user.language))
         return
     await state.update_data(title=title)
     await state.set_state(ReminderWizard.every_minutes)
@@ -93,7 +93,7 @@ async def handle_window(
     if query.message is not None:
         await query.message.answer(
             T(
-                "wizard.confirm",
+                "wizard.confirm_interval",
                 user.language,
                 title=data["title"],
                 every_minutes=data["every_minutes"],
