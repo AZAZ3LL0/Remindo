@@ -22,7 +22,8 @@ async def fetch_user(session_factory) -> User:
 
 async def count_users(session_factory) -> int:
     async with session_factory() as session:
-        return int((await session.execute(sa.select(sa.func.count()).select_from(User))).scalar_one())
+        stmt = sa.select(sa.func.count()).select_from(User)
+        return int((await session.execute(stmt)).scalar_one())
 
 
 def last_text(telegram) -> str:
