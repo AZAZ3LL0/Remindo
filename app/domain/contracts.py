@@ -10,6 +10,13 @@ from typing import Final
 SCHEDULE_PAYLOAD_VERSION: Final = 1
 
 
+class Language(StrEnum):
+    """Interface language. Stored as TEXT, not as a native PostgreSQL enum."""
+
+    RU = "ru"
+    EN = "en"
+
+
 class ReminderStatus(StrEnum):
     ACTIVE = "active"
     PAUSED = "paused"
@@ -95,4 +102,17 @@ TERMINAL_OCCURRENCE_STATUSES: Final = frozenset(
         OccurrenceStatus.EXPIRED,
         OccurrenceStatus.FAILED,
     }
+)
+
+#: Timezones offered as buttons during onboarding. Any other zone arrives as
+#: manual IANA input, so this list stays short instead of complete.
+POPULAR_TIMEZONES: Final[tuple[str, ...]] = (
+    "Europe/Kaliningrad",
+    "Europe/Moscow",
+    "Europe/Samara",
+    "Asia/Yekaterinburg",
+    "Asia/Novosibirsk",
+    "Asia/Irkutsk",
+    "Asia/Vladivostok",
+    "Europe/Berlin",
 )
