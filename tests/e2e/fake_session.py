@@ -4,6 +4,7 @@ The bot process is exercised end to end without a token and without network:
 outgoing API calls are recorded and answered with plausible objects.
 """
 
+from collections import deque
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from itertools import count
@@ -26,6 +27,15 @@ class FakeTelegramSession(BaseSession):
         super().__init__()
         self.requests: list[TelegramMethod[Any]] = []
         self._message_ids = count(1)
+        self._failures: deque[tuple[BaseException, type[TelegramMethod[Any]] | None]] = deque()
+
+    def fail_next(self, error: BaseException, on: type[TelegramMethod[Any]] | None = None) -> None:
+        """Program an API call to raise, optionally only a call of one method.
+
+        Narrowing by method matters because one handler makes several calls:
+        a failure meant for the redraw must not land on the callback answer.
+        """
+        self._failures.append((error, on))
 
     @property
     def sent_messages(self) -> list[SendMessage]:
@@ -43,6 +53,8 @@ class FakeTelegramSession(BaseSession):
         self, bot: Bot, method: TelegramMethod[Any], timeout: int | None = None
     ) -> Any:
         self.requests.append(method)
+        if self._failures and isinstance(method, self._failures[0][1] or type(method)):
+            raise self._failures.popleft()[0]
         if isinstance(method, SendMessage):
             return self._message(chat_id=method.chat_id, text=method.text)
         if isinstance(method, EditMessageText):

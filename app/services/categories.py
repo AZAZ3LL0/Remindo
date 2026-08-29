@@ -1,6 +1,7 @@
 """Category management on top of the system presets."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,14 @@ from app.domain.errors import (
     NotFoundError,
     PermissionDeniedError,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class ArchiveResult:
+    """`applied` is false when the category was already in the archive."""
+
+    applied: bool
+    category: Category
 
 
 class CategoriesService:
@@ -72,16 +81,16 @@ class CategoriesService:
         await self._session.commit()
         return category
 
-    async def archive(self, user_id: int, category_id: int) -> Category:
+    async def archive(self, user_id: int, category_id: int) -> ArchiveResult:
         """Hide an own category. Archiving twice is a no-op, not an error."""
         category = await self._own_category(user_id, category_id, allow_archived=True)
         if category.archived_at is not None:
-            return category
+            return ArchiveResult(applied=False, category=category)
         if await self._categories.count_active_reminders(category_id):
             raise CategoryInUseError("category still has non-archived reminders")
         category.archived_at = self._clock.now()
         await self._session.commit()
-        return category
+        return ArchiveResult(applied=True, category=category)
 
     async def _reject_duplicate(
         self, user_id: int, title: str, exclude_id: int | None = None
