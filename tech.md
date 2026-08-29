@@ -806,7 +806,7 @@ def unpack_wall_time(value: str) -> str    # "2300" -> "23:00"
 
 ### 16.5 Ключи текстов (`bot/render/texts.py`)
 
-`start.welcome_back`, `start.timezone_manual`, `settings.quiet_value`, `settings.pick_timezone`, `settings.pick_language`, `settings.pick_quiet`, `settings.pick_quiet_start`, `settings.pick_quiet_end`, `settings.quiet_saved`, `settings.quiet_cleared`, `settings.quiet_equal`, `settings.language_saved`, `settings.time_invalid`, `settings.saved`, `lang.ru`, `lang.en`, `btn.back`, `btn.timezone`, `btn.language`, `btn.quiet`, `btn.quiet_set`, `btn.quiet_off`.
+`start.welcome_back`, `start.timezone_manual`, `settings.quiet_value`, `settings.pick_timezone`, `settings.pick_language`, `settings.pick_quiet`, `settings.pick_quiet_start`, `settings.pick_quiet_end`, `settings.time_manual`, `settings.quiet_saved`, `settings.quiet_cleared`, `settings.quiet_equal`, `settings.language_saved`, `settings.time_invalid`, `settings.saved`, `lang.ru`, `lang.en`, `btn.back`, `btn.timezone`, `btn.language`, `btn.quiet`, `btn.quiet_set`, `btn.quiet_off`.
 
 У каждого ключа обязательны обе локали и совпадающий набор плейсхолдеров — держится контрактным тестом.
 

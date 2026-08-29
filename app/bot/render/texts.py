@@ -70,6 +70,10 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
         "en": "Quiet hours start and end match. Pick different times.",
     },
     "settings.language_saved": {"ru": "Язык: {language}.", "en": "Language: {language}."},
+    "settings.time_manual": {
+        "ru": "Пришли время в формате HH:MM, например 23:00.",
+        "en": "Send a time as HH:MM, for example 23:00.",
+    },
     "settings.time_invalid": {
         "ru": "Не понял время. Формат HH:MM, например 23:00.",
         "en": "Unclear time. Use HH:MM, for example 23:00.",
