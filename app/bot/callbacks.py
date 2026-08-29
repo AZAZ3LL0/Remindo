@@ -35,6 +35,31 @@ class WizCb(CallbackData, prefix="w"):
     value: str  # <= 24 characters
 
 
+class SetCb(CallbackData, prefix="s"):
+    """Settings screen. `menu` opens a sub-screen, the rest apply a value.
+
+    `value` carries one atom: a sub-screen name, an IANA zone, a language code
+    or a quiet-hours command. It is never a separator-packed pair.
+    """
+
+    field: Literal["menu", "tz", "lang", "quiet"]
+    value: str  # <= 32 characters
+
+
+def pack_wall_time(value: str) -> str:
+    """`HH:MM` as one callback atom.
+
+    `:` is the CallbackData separator and aiogram refuses it inside a value, so
+    the colon is dropped rather than the pair being packed with a second one.
+    """
+    return value.replace(":", "")
+
+
+def unpack_wall_time(value: str) -> str:
+    """Inverse of `pack_wall_time`. Validity is decided by the domain parser."""
+    return f"{value[:2]}:{value[2:]}"
+
+
 #: Every factory the fake gateway accepts in an outgoing keyboard.
 KNOWN_CALLBACK_FACTORIES: tuple[type[CallbackData], ...] = (
     ReactCb,
@@ -42,6 +67,7 @@ KNOWN_CALLBACK_FACTORIES: tuple[type[CallbackData], ...] = (
     CatCb,
     PageCb,
     WizCb,
+    SetCb,
 )
 
 #: Buttons that carry no action, e.g. the page counter in a paginator.

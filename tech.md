@@ -1,10 +1,11 @@
 # tech.md — ядро проекта Reminder Bot
 
-**Версия ядра: v2**
+**Версия ядра: v3**
 
 Changelog:
 - `v1` — первичная фиксация: стек, структура, схема БД, контракты расписаний и воркеров, протоколы гейтвеев, стратегия тестов, дорожная карта.
 - `v2` — §0 состав команды и совмещение ролей; §12.2 авторство коммитов и PR (git identity, запрет посторонних трейлеров).
+- `v3` — §16 контракт слайса S1: enum `Language`, список `POPULAR_TIMEZONES`, CallbackData-фабрика `SetCb` (префикс `s`), публичные `parse_hhmm`/`format_hhmm`, клавиатуры настроек, ключи текстов, три новых модуля слайса.
 
 Этот файл — единственный источник истины. Любая сессия читает его первым и подчиняется дословно. Контракты не выдумываются: нет нужного типа/поля/топика — сессия останавливается и выдаёт блок `CONTRACT GAP` (формат в `CLAUDE.md`). Файл меняется только append-only, каждое изменение контракта бампает версию.
 
@@ -728,3 +729,109 @@ git remote add origin git@github.com:AZAZ3LL0/<repo>.git
 **S12. Ops.** Healthcheck-эндпоинт воркера, метрики (размер очереди, лаг доставки, доля ошибок), алерт при лаге > 5 минут, бэкап БД, ротация логов.
 
 Long-lead: нет. Внешних согласований проект не требует, токен бота выдаёт BotFather мгновенно.
+
+---
+
+## 16. Контракт слайса S1 (онбординг и настройки)
+
+Добавлено в `v3`. Раздел append-only, как и весь файл: значения ниже не переименовываются.
+
+### 16.1 Язык и таймзоны (`domain/contracts.py`)
+
+```python
+class Language(StrEnum):
+    RU = "ru"
+    EN = "en"
+```
+
+`Language` хранится в `users.language` как TEXT, native enum в Postgres для него не заводится. Расширение — append-only, как у остальных enum §4.1.
+
+```python
+POPULAR_TIMEZONES: Final[tuple[str, ...]]
+```
+
+Восемь IANA-зон, предлагаемых кнопками на онбординге. Список намеренно короткий и не полный: всё остальное пользователь вводит вручную IANA-именем. Инварианты, закреплённые контрактным тестом:
+
+- каждое имя резолвится `zoneinfo.ZoneInfo`;
+- каждое имя укладывается в `SetCb` и в лимит 64 байта;
+- ни одно имя не совпадает с зарезервированными значениями §16.3.
+
+### 16.2 Формат настенного времени (`domain/schedules.py`)
+
+`parse_hhmm(value) -> time` и `format_hhmm(value) -> str` становятся публичными. Формат `HH:MM`, 24 часа — один контракт на весь продукт: расписания §5, тихие часы, ручной ввод пользователя. Второй разбор `HH:MM` где-либо ещё запрещён.
+
+### 16.3 CallbackData экрана настроек (`bot/callbacks.py`)
+
+```python
+class SetCb(CallbackData, prefix="s"):
+    field: Literal["menu", "tz", "lang", "quiet"]
+    value: str      # <= 32 символа
+```
+
+Префикс `s` заморожен наравне с §6. Семантика полей:
+
+| `field` | допустимые `value` | эффект |
+|---|---|---|
+| `menu` | `root` \| `tz` \| `lang` \| `quiet` | открыть экран, состояние не меняется |
+| `tz` | IANA-имя \| `manual` | сохранить таймзону либо уйти в ручной ввод |
+| `lang` | `ru` \| `en` | сохранить язык |
+| `quiet` | `edit` \| `off` | начать выбор интервала либо выключить тишину |
+
+`value` несёт ровно один атом. Упаковка пары значений разделителем запрещена §6; двухшаговый выбор тихих часов идёт через состояние FSM, а не через составной `value`.
+
+Зарезервированные значения: `root`, `manual`, `edit`, `off`.
+
+Времена тихих часов выбираются существующей фабрикой `WizCb` со `step = "qs"` (начало) и `step = "qe"` (конец). `value` — настенное время атомом `HHMM` либо `man` для ручного ввода.
+
+Двоеточие — разделитель CallbackData в aiogram и внутри `value` запрещено. Настенное время едет атомом без двоеточия через пару в `bot/callbacks.py`:
+
+```python
+def pack_wall_time(value: str) -> str      # "23:00" -> "2300"
+def unpack_wall_time(value: str) -> str    # "2300" -> "23:00"
+```
+
+Это единственный допустимый способ положить время в `callback_data`; собирать строку вручную запрещено.
+
+### 16.4 Клавиатуры (`bot/keyboards/settings.py`)
+
+| примитив | контракт |
+|---|---|
+| `settings_kb(lang)` | корневой экран: Таймзона / Язык / Тихие часы |
+| `timezone_picker_kb(lang, *, with_back)` | `POPULAR_TIMEZONES` + «Ввести вручную»; онбординг скрывает «Назад» |
+| `language_picker_kb(current, lang)` | ru / en, текущий помечен |
+| `quiet_menu_kb(lang, *, is_on)` | Задать / Выключить (только когда тишина включена) / Назад |
+| `quiet_time_picker_kb(step, lang)` | часы 21:00–01:00 и 05:00–09:00 + ручной ввод |
+
+`quiet_time_picker_kb` существует отдельно от `time_picker_kb` §9: пресеты последнего не содержат 23:00, самого частого начала тишины.
+
+### 16.5 Ключи текстов (`bot/render/texts.py`)
+
+`start.welcome_back`, `start.timezone_manual`, `settings.quiet_value`, `settings.pick_timezone`, `settings.pick_language`, `settings.pick_quiet`, `settings.pick_quiet_start`, `settings.pick_quiet_end`, `settings.time_manual`, `settings.quiet_saved`, `settings.quiet_cleared`, `settings.quiet_equal`, `settings.language_saved`, `settings.time_invalid`, `settings.saved`, `lang.ru`, `lang.en`, `btn.back`, `btn.timezone`, `btn.language`, `btn.quiet`, `btn.quiet_set`, `btn.quiet_off`.
+
+У каждого ключа обязательны обе локали и совпадающий набор плейсхолдеров — держится контрактным тестом.
+
+### 16.6 Модули слайса
+
+Раскладка §3.1 дополняется тремя файлами, которые пишет слайс S1:
+
+```
+app/domain/onboarding.py     # чистая валидация языка, таймзоны и тихих часов
+app/bot/fsm/onboarding.py    # состояния Onboarding и SettingsForm
+app/bot/render/settings.py   # рендер экрана настроек
+```
+
+Публичный API домена:
+
+```python
+def normalize_language(raw: str) -> Language
+def normalize_timezone(raw: str) -> str
+def parse_wall_time(raw: str) -> time
+def normalize_quiet_hours(start: time | None, end: time | None) -> tuple[time, time] | None
+```
+
+Правила тихих часов, обязательные к соблюдению:
+
+1. `quiet_start` и `quiet_end` задаются и снимаются только вместе (CHECK §4.2);
+2. равные начало и конец отвергаются: `is_quiet` §8 на таком интервале всегда ложна, то есть настройка молча не работала бы;
+3. интервал через полночь допустим, `quiet_start > quiet_end` — нормальное состояние;
+4. функции чистые: ни часов, ни IO, ни импортов вне stdlib.

@@ -8,6 +8,7 @@ from app.bot.callbacks import (
     PageCb,
     ReactCb,
     RemCb,
+    SetCb,
     WizCb,
 )
 
@@ -20,6 +21,7 @@ MAXIMAL = [
     CatCb(category_id=2**63 - 1, action="archive"),
     PageCb(scope="today", page=999_999),
     WizCb(step="x" * 12, value="y" * 24),
+    SetCb(field="quiet", value="z" * 32),
 ]
 
 
@@ -41,6 +43,7 @@ def test_prefixes_are_frozen():
         "c",
         "p",
         "w",
+        "s",
     ]
 
 

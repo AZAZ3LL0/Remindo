@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.bot.callbacks import CatCb, PageCb, WizCb
+from app.bot.callbacks import CatCb, PageCb, WizCb, pack_wall_time
 from app.bot.render.texts import DEFAULT_LANG, WEEKDAY_LABELS, Lang, T
 from app.db.models import Category
 
@@ -73,7 +73,7 @@ def time_picker_kb(step: str, lang: Lang = DEFAULT_LANG) -> InlineKeyboardMarkup
     builder = InlineKeyboardBuilder()
     for hour in (7, 8, 9, 12, 15, 18, 20, 22):
         value = f"{hour:02d}:00"
-        builder.button(text=value, callback_data=WizCb(step=step, value=value))
+        builder.button(text=value, callback_data=WizCb(step=step, value=pack_wall_time(value)))
     builder.button(text=T("btn.manual_input", lang), callback_data=WizCb(step=step, value="man"))
     builder.adjust(4, 4, 1)
     return builder.as_markup()
