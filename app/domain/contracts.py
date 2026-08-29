@@ -104,6 +104,17 @@ TERMINAL_OCCURRENCE_STATUSES: Final = frozenset(
     }
 )
 
+#: Reminder limits mirrored from the schema (tech.md 4.2, 18.2), for the same
+#: reason the category limits are mirrored: the domain rejects a value before
+#: the database gets the chance to.
+REMINDER_TITLE_MAX_LENGTH: Final = 120
+REMINDER_NOTE_MAX_LENGTH: Final = 1000
+
+#: How far ahead the creation wizard accepts a date and looks for the first
+#: firing moment (tech.md 18.2). A year with room for a leap day: anything
+#: further out is almost always a typo, and the search stays bounded.
+WIZARD_MAX_DAYS_AHEAD: Final = 366
+
 #: Category limits mirrored from the schema (tech.md 4.2, 17.2). The domain
 #: rejects a value before the database gets the chance to.
 CATEGORY_TITLE_MAX_LENGTH: Final = 64
