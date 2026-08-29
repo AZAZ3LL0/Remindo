@@ -27,3 +27,7 @@ class ScheduleExhaustedError(DomainError):
 
 class CategoryInUseError(DomainError):
     """Category still has active reminders."""
+
+
+class CategoryExistsError(DomainError):
+    """Owner already has an active category under this title."""

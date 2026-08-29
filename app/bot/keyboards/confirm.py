@@ -5,10 +5,10 @@ from typing import Literal
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.bot.callbacks import RemCb, WizCb
+from app.bot.callbacks import CatCb, RemCb, WizCb
 from app.bot.render.texts import DEFAULT_LANG, Lang, T
 
-ConfirmAction = Literal["delete", "create"]
+ConfirmAction = Literal["delete", "create", "archive"]
 
 
 def confirm_kb(
@@ -19,6 +19,11 @@ def confirm_kb(
         builder.button(
             text=T("btn.yes", lang),
             callback_data=RemCb(reminder_id=entity_id, action="confirm_delete"),
+        )
+    elif action == "archive":
+        builder.button(
+            text=T("btn.yes", lang),
+            callback_data=CatCb(category_id=entity_id, action="confirm_archive"),
         )
     else:
         builder.button(text=T("btn.yes", lang), callback_data=WizCb(step="confirm", value="yes"))

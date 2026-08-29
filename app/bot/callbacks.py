@@ -21,8 +21,13 @@ class RemCb(CallbackData, prefix="m"):
 
 
 class CatCb(CallbackData, prefix="c"):
+    """Category screen. Archiving is confirmed: it hides the category from
+    every picker, and categories are never hard-deleted because archived
+    reminders still point at the row (tech.md 17.1).
+    """
+
     category_id: int
-    action: Literal["pick", "open", "rename", "archive"]
+    action: Literal["pick", "open", "rename", "archive", "confirm_archive"]
 
 
 class PageCb(CallbackData, prefix="p"):
