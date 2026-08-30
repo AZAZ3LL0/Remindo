@@ -44,7 +44,12 @@ class RemindersRepository:
         return int((await self._session.execute(stmt)).scalar_one())
 
     async def due_for_planning(self, horizon_end: datetime, limit: int) -> Sequence[Reminder]:
-        """Active reminders whose materialised horizon is about to run out."""
+        """Active reminders whose materialised horizon is about to run out.
+
+        Least planned first, so a batch smaller than the backlog cannot starve
+        the same tail of reminders cycle after cycle. The order matches the
+        partial index on (status, planned_until).
+        """
         stmt = (
             sa.select(Reminder)
             .where(
@@ -55,7 +60,7 @@ class RemindersRepository:
                     Reminder.planned_until < horizon_end,
                 ),
             )
-            .order_by(Reminder.id)
+            .order_by(sa.nulls_first(Reminder.planned_until.asc()), Reminder.id)
             .limit(limit)
         )
         return (await self._session.execute(stmt)).scalars().all()
