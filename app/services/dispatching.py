@@ -96,6 +96,8 @@ class DispatchingService:
 
     async def _deliver_one(self, delivery: Delivery, context: SendContext | None) -> DeliveryStatus:
         if context is None:
+            # The row lost its reminder or recipient between the claim and this
+            # load: an account deletion cascading while the batch was in flight.
             return await self._apply(
                 delivery, decide_abort(AbortReason.CONTEXT_MISSING, delivery.attempts)
             )
