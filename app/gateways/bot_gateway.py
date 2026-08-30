@@ -9,7 +9,9 @@ from aiogram.exceptions import (
     TelegramBadRequest,
     TelegramForbiddenError,
     TelegramNetworkError,
+    TelegramNotFound,
     TelegramRetryAfter,
+    TelegramServerError,
 )
 from aiogram.types import InlineKeyboardMarkup
 
@@ -44,10 +46,16 @@ def classify_error(error: BaseException) -> ErrorClass:
         return ErrorClass.RETRY_AFTER
     if isinstance(error, TelegramForbiddenError):
         return ErrorClass.FORBIDDEN
-    if isinstance(error, TelegramBadRequest):
+    if isinstance(error, TelegramBadRequest | TelegramNotFound):
+        # A missing chat is as permanent as a malformed payload: the recipient
+        # deleted the account, and five more attempts change nothing.
         return ErrorClass.BAD_REQUEST
-    if isinstance(error, TelegramNetworkError | asyncio.TimeoutError | TimeoutError):
+    if isinstance(
+        error, TelegramServerError | TelegramNetworkError | asyncio.TimeoutError | TimeoutError
+    ):
         return ErrorClass.TRANSIENT
+    # An unknown failure is retried rather than dropped: the attempt budget
+    # bounds it, and losing a reminder is worse than sending it late.
     return ErrorClass.TRANSIENT
 
 
