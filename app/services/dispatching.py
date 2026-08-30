@@ -1,5 +1,6 @@
 """dispatcher.deliver: claim, send, apply the retry policy (tech.md 7.2)."""
 
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -13,13 +14,18 @@ from app.bot.render.texts import T
 from app.core.clock import Clock
 from app.core.logging import get_logger
 from app.db.models import Category, Delivery, FSMState, Occurrence, Reminder, User
-from app.db.repositories.categories import CategoriesRepository
 from app.db.repositories.deliveries import DeliveriesRepository
 from app.db.repositories.occurrences import OccurrencesRepository
-from app.db.repositories.reminders import RemindersRepository
 from app.db.repositories.users import UsersRepository
-from app.domain.contracts import ActionKind, DeliveryStatus, ErrorClass, OccurrenceStatus
-from app.domain.retry import next_attempt, should_retry
+from app.domain.contracts import ActionKind, DeliveryStatus, OccurrenceStatus
+from app.domain.dispatching import (
+    AbortReason,
+    Verdict,
+    check_deliverable,
+    decide_abort,
+    decide_failure,
+    decide_success,
+)
 from app.gateways.bot_gateway import (
     BotGateway,
     MessageRef,
@@ -29,6 +35,13 @@ from app.gateways.bot_gateway import (
 )
 
 _log = get_logger(__name__)
+
+#: Occurrence statuses a successful send moves to `sent`. Anything else was
+#: already resolved by a reaction or by the reaper.
+_SENDABLE_OCCURRENCE_STATUSES = (OccurrenceStatus.PENDING, OccurrenceStatus.DISPATCHING)
+
+#: Occurrence, reminder, category and recipient of one delivery.
+SendContext = tuple[Occurrence, Reminder, Category, User]
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,8 +69,6 @@ class DispatchingService:
         self._lock = timedelta(seconds=lock_seconds)
         self._deliveries = DeliveriesRepository(session)
         self._occurrences = OccurrencesRepository(session)
-        self._reminders = RemindersRepository(session)
-        self._categories = CategoriesRepository(session)
         self._users = UsersRepository(session)
 
     async def deliver(self) -> DispatchResult:
@@ -68,33 +79,33 @@ class DispatchingService:
         # cannot hand the same row to another worker before it expires.
         await self._session.commit()
 
-        sent = retried = failed = blocked = 0
+        context = await self._deliveries.load_send_context([row.id for row in claimed])
+        counts: Counter[DeliveryStatus] = Counter()
         for delivery in claimed:
-            outcome = await self._deliver_one(delivery)
-            sent += outcome == "sent"
-            retried += outcome == "retried"
-            failed += outcome == "failed"
-            blocked += outcome == "blocked"
+            counts[await self._deliver_one(delivery, context.get(delivery.id))] += 1
 
         result = DispatchResult(
-            claimed=len(claimed), sent=sent, retried=retried, failed=failed, blocked=blocked
+            claimed=len(claimed),
+            sent=counts[DeliveryStatus.SENT],
+            retried=counts[DeliveryStatus.PENDING],
+            failed=counts[DeliveryStatus.FAILED],
+            blocked=counts[DeliveryStatus.BLOCKED],
         )
         _log.info("dispatcher.deliver", **asdict(result))
         return result
 
-    async def _deliver_one(self, delivery: Delivery) -> str:
-        context = await self._load_context(delivery)
+    async def _deliver_one(self, delivery: Delivery, context: SendContext | None) -> DeliveryStatus:
         if context is None:
-            await self._deliveries.update_fields(
-                delivery.id,
-                status=DeliveryStatus.FAILED,
-                error_code="context_missing",
-                locked_until=None,
+            return await self._apply(
+                delivery, decide_abort(AbortReason.CONTEXT_MISSING, delivery.attempts)
             )
-            await self._session.commit()
-            return "failed"
 
         occurrence, reminder, category, user = context
+        abort = check_deliverable(occurrence.status, user_blocked=user.is_blocked)
+        if abort is not None:
+            _log.info("dispatcher.aborted", delivery_id=delivery.id, reason=abort.value)
+            return await self._apply(delivery, decide_abort(abort, delivery.attempts))
+
         message = OutgoingMessage(
             chat_id=user.tg_chat_id,
             text=render_reminder_message(
@@ -106,80 +117,51 @@ class DispatchingService:
         try:
             ref = await self._gateway.send(message)
         except Exception as error:
-            return await self._handle_failure(delivery, error)
+            verdict = decide_failure(
+                delivery.attempts,
+                classify_error(error),
+                self._clock.now(),
+                error_code=type(error).__name__,
+                retry_after=retry_after_seconds(error),
+            )
+            _log.warning(
+                "dispatcher.send_failed",
+                delivery_id=delivery.id,
+                user_id=delivery.user_id,
+                error=verdict.error_code,
+                status=verdict.status.value,
+            )
+            return await self._apply(delivery, verdict)
 
-        now = self._clock.now()
-        await self._deliveries.update_fields(
-            delivery.id,
-            status=DeliveryStatus.SENT,
-            sent_at=now,
-            tg_message_id=ref.message_id,
-            locked_until=None,
-            error_code=None,
-        )
-        if occurrence.status in (OccurrenceStatus.PENDING, OccurrenceStatus.DISPATCHING):
+        return await self._apply(delivery, decide_success(), occurrence=occurrence, ref=ref)
+
+    async def _apply(
+        self,
+        delivery: Delivery,
+        verdict: Verdict,
+        occurrence: Occurrence | None = None,
+        ref: MessageRef | None = None,
+    ) -> DeliveryStatus:
+        """Write one verdict back and release the lease."""
+        values: dict[str, object] = {
+            "status": verdict.status,
+            "attempts": verdict.attempts,
+            "error_code": verdict.error_code,
+            "locked_until": None,
+        }
+        if verdict.next_attempt_at is not None:
+            values["next_attempt_at"] = verdict.next_attempt_at
+        if ref is not None:
+            values["sent_at"] = self._clock.now()
+            values["tg_message_id"] = ref.message_id
+
+        await self._deliveries.update_fields(delivery.id, **values)
+        if verdict.blocks_user:
+            await self._users.mark_blocked(delivery.user_id, True)
+        if occurrence is not None and occurrence.status in _SENDABLE_OCCURRENCE_STATUSES:
             await self._occurrences.set_status(occurrence.id, OccurrenceStatus.SENT)
         await self._session.commit()
-        return "sent"
-
-    async def _handle_failure(self, delivery: Delivery, error: BaseException) -> str:
-        error_class = classify_error(error)
-        now = self._clock.now()
-
-        if error_class is ErrorClass.FORBIDDEN:
-            await self._deliveries.update_fields(
-                delivery.id,
-                status=DeliveryStatus.BLOCKED,
-                error_code=type(error).__name__,
-                locked_until=None,
-            )
-            await self._users.mark_blocked(delivery.user_id, True)
-            await self._session.commit()
-            _log.warning("dispatcher.blocked", delivery_id=delivery.id, user_id=delivery.user_id)
-            return "blocked"
-
-        if not should_retry(delivery.attempts, error_class):
-            await self._deliveries.update_fields(
-                delivery.id,
-                status=DeliveryStatus.FAILED,
-                error_code=type(error).__name__,
-                locked_until=None,
-            )
-            await self._session.commit()
-            _log.error(
-                "dispatcher.failed",
-                delivery_id=delivery.id,
-                error_class=error_class.value,
-                attempts=delivery.attempts,
-            )
-            return "failed"
-
-        await self._deliveries.update_fields(
-            delivery.id,
-            status=DeliveryStatus.PENDING,
-            next_attempt_at=next_attempt(
-                delivery.attempts, error_class, now, retry_after=retry_after_seconds(error)
-            ),
-            error_code=type(error).__name__,
-            locked_until=None,
-        )
-        await self._session.commit()
-        return "retried"
-
-    async def _load_context(
-        self, delivery: Delivery
-    ) -> tuple[Occurrence, Reminder, Category, User] | None:
-        occurrence = await self._occurrences.get_by_id(delivery.occurrence_id)
-        if occurrence is None:
-            return None
-        reminder = await self._reminders.get_by_id(occurrence.reminder_id)
-        if reminder is None:
-            return None
-        category = await self._categories.get_by_id(reminder.category_id)
-        user = await self._users.get_by_id(delivery.user_id)
-        if category is None or user is None:
-            return None
-        return occurrence, reminder, category, user
+        return verdict.status
 
 
 @dataclass(frozen=True, slots=True)

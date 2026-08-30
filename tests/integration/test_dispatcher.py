@@ -80,7 +80,8 @@ async def test_retry_after_reschedules_without_losing_the_message(
     assert result.retried == 1
     assert stored.status is DeliveryStatus.PENDING
     assert stored.next_attempt_at == FROZEN_NOW + timedelta(seconds=6)
-    assert stored.attempts == 1
+    # Flood control is not this delivery's fault, so it keeps its budget.
+    assert stored.attempts == 0
     assert stored.locked_until is None
 
 

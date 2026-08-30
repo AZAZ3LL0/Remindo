@@ -8,7 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Delivery, DeliveryAction, Occurrence, Reminder
+from app.db.models import Category, Delivery, DeliveryAction, Occurrence, Reminder, User
 from app.domain.contracts import ActionKind, DeliveryStatus
 
 
@@ -58,6 +58,27 @@ class DeliveriesRepository:
             .execution_options(synchronize_session=False, populate_existing=True)
         )
         return (await self._session.execute(stmt)).scalars().all()
+
+    async def load_send_context(
+        self, delivery_ids: Sequence[int]
+    ) -> dict[int, tuple[Occurrence, Reminder, Category, User]]:
+        """Everything one batch needs to render its messages, in one query.
+
+        The claim hands back a batch, so loading the context row by row would
+        cost four round trips per delivery.
+        """
+        if not delivery_ids:
+            return {}
+        stmt = (
+            sa.select(Delivery.id, Occurrence, Reminder, Category, User)
+            .join(Occurrence, Occurrence.id == Delivery.occurrence_id)
+            .join(Reminder, Reminder.id == Occurrence.reminder_id)
+            .join(Category, Category.id == Reminder.category_id)
+            .join(User, User.id == Delivery.user_id)
+            .where(Delivery.id.in_(delivery_ids))
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return {row[0]: (row[1], row[2], row[3], row[4]) for row in rows}
 
     async def update_fields(self, delivery_id: int, **values: Any) -> None:
         stmt = sa.update(Delivery).where(Delivery.id == delivery_id).values(**values)
