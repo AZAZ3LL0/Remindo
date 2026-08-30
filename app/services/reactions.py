@@ -35,7 +35,11 @@ _log = get_logger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class ReactionResult:
-    """Outcome of one tap, as the screen needs to report it."""
+    """Outcome of one tap, as the screen needs to report it.
+
+    `reason` is set exactly when nothing was applied: it names the answer the
+    user gets instead of a state change.
+    """
 
     applied: bool
     kind: ActionKind

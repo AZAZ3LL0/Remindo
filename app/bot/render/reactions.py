@@ -27,6 +27,7 @@ OUTCOME_SEPARATOR = "\n\n"
 def render_outcome(result: ReactionResult, tz: ZoneInfo, lang: Lang = DEFAULT_LANG) -> str:
     """One line saying what the tap did, for both the toast and the message."""
     if result.reason is not None:
+        # A reason is carried exactly when the tap changed nothing.
         return T(_REJECTED_KEYS[result.reason], lang)
     if result.kind is ActionKind.SNOOZE:
         return T("react.snoozed", lang, until=format_local(result.snoozed_until, tz, lang))
