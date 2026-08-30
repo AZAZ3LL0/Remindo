@@ -1,7 +1,7 @@
 """done / snooze / skip (tech.md 7.4). Every reaction is idempotent."""
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,17 +12,19 @@ from app.db.models import Delivery, Occurrence
 from app.db.repositories.deliveries import DeliveriesRepository
 from app.db.repositories.occurrences import OccurrencesRepository
 from app.db.repositories.reminders import RemindersRepository
-from app.domain.contracts import (
-    TERMINAL_DELIVERY_STATUSES,
-    ActionKind,
-    DeliveryStatus,
-    OccurrenceStatus,
-)
+from app.domain.contracts import ActionKind, DeliveryStatus
 from app.domain.errors import NotFoundError, PermissionDeniedError
+from app.domain.reactions import (
+    Reaction,
+    RejectReason,
+    check_reactable,
+    decide_reaction,
+    roll_up_occurrence,
+)
 
 Action = Literal["done", "snooze", "skip"]
 
-_ACTION_KINDS: dict[Action, ActionKind] = {
+ACTION_KINDS: dict[Action, ActionKind] = {
     "done": ActionKind.DONE,
     "snooze": ActionKind.SNOOZE,
     "skip": ActionKind.SKIP,
@@ -33,11 +35,13 @@ _log = get_logger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class ReactionResult:
+    """Outcome of one tap, as the screen needs to report it."""
+
     applied: bool
-    action: Action
+    kind: ActionKind
     status: DeliveryStatus
     snoozed_until: datetime | None = None
-    reason: str | None = None
+    reason: RejectReason | None = None
 
 
 class ReactionsService:
@@ -49,7 +53,9 @@ class ReactionsService:
         self._reminders = RemindersRepository(session)
 
     async def react(self, delivery_id: int, user_id: int, action: Action) -> ReactionResult:
+        """Apply one tap under a row lock, so a double tap serialises."""
         now = self._clock.now()
+        kind = ACTION_KINDS[action]
         delivery = await self._deliveries.get_for_update(delivery_id)
         if delivery is None:
             raise NotFoundError(f"delivery {delivery_id} not found")
@@ -60,87 +66,83 @@ class ReactionsService:
         if occurrence is None:
             raise NotFoundError(f"occurrence {delivery.occurrence_id} not found")
 
-        rejection = self._rejection_reason(delivery, occurrence, now)
-        if rejection is not None:
-            # A second tap on the same button must not write a second action.
+        reason = check_reactable(
+            kind,
+            delivery_status=delivery.status,
+            occurrence_status=occurrence.status,
+            expires_at=occurrence.expires_at,
+            snoozed_until=delivery.snoozed_until,
+            now=now,
+        )
+        if reason is not None:
             # Nothing was written; the commit only releases the row lock.
             await self._session.commit()
-            return ReactionResult(
-                applied=False, action=action, status=delivery.status, reason=rejection
+            _log.info(
+                "reaction.rejected",
+                delivery_id=delivery_id,
+                user_id=user_id,
+                action=action,
+                reason=reason.value,
             )
+            return ReactionResult(applied=False, kind=kind, status=delivery.status, reason=reason)
 
-        if action == "snooze":
-            result = await self._snooze(delivery, occurrence, now)
-        else:
-            result = await self._finish(delivery, occurrence, action, now)
-
+        snooze_minutes = await self._snooze_minutes(occurrence)
+        reaction = decide_reaction(kind, now, snooze_minutes)
+        await self._write(delivery, reaction, now, snooze_minutes)
+        await self._close_occurrence(occurrence, reaction)
         await self._session.commit()
+
         _log.info(
             "reaction.applied",
             delivery_id=delivery_id,
             user_id=user_id,
             action=action,
-            status=result.status.value,
-        )
-        return result
-
-    def _rejection_reason(
-        self, delivery: Delivery, occurrence: Occurrence, now: datetime
-    ) -> str | None:
-        if delivery.status in TERMINAL_DELIVERY_STATUSES:
-            return "already_handled"
-        if occurrence.status is OccurrenceStatus.EXPIRED or occurrence.expires_at <= now:
-            return "expired"
-        if (
-            delivery.status is DeliveryStatus.SNOOZED
-            and delivery.snoozed_until is not None
-            and delivery.snoozed_until > now
-        ):
-            # Already postponed and not re-delivered yet: the button is stale.
-            return "already_handled"
-        return None
-
-    async def _snooze(
-        self, delivery: Delivery, occurrence: Occurrence, now: datetime
-    ) -> ReactionResult:
-        reminder = await self._reminders.get_by_id(occurrence.reminder_id)
-        minutes = reminder.snooze_minutes if reminder else 10
-        snoozed_until = now + timedelta(minutes=minutes)
-        await self._deliveries.update_fields(
-            delivery.id,
-            status=DeliveryStatus.SNOOZED,
-            snoozed_until=snoozed_until,
-            next_attempt_at=snoozed_until,
-            locked_until=None,
-        )
-        await self._deliveries.add_action(
-            delivery.id,
-            delivery.user_id,
-            ActionKind.SNOOZE,
-            created_at=now,
-            payload={"minutes": minutes},
+            status=reaction.status.value,
         )
         return ReactionResult(
             applied=True,
-            action="snooze",
-            status=DeliveryStatus.SNOOZED,
-            snoozed_until=snoozed_until,
+            kind=reaction.kind,
+            status=reaction.status,
+            snoozed_until=reaction.snoozed_until,
         )
 
-    async def _finish(
-        self, delivery: Delivery, occurrence: Occurrence, action: Action, now: datetime
-    ) -> ReactionResult:
-        status = DeliveryStatus.DONE if action == "done" else DeliveryStatus.SKIPPED
-        await self._deliveries.update_fields(
-            delivery.id, status=status, reacted_at=now, locked_until=None
-        )
+    async def _snooze_minutes(self, occurrence: Occurrence) -> int:
+        reminder = await self._reminders.get_by_id(occurrence.reminder_id)
+        if reminder is None:
+            raise NotFoundError(f"reminder {occurrence.reminder_id} not found")
+        return reminder.snooze_minutes
+
+    async def _write(
+        self, delivery: Delivery, reaction: Reaction, now: datetime, snooze_minutes: int
+    ) -> None:
+        values: dict[str, object] = {
+            "status": reaction.status,
+            # The lease is dropped with the reaction: the row either left the
+            # queue or carries a new due moment, and either way no worker owns it.
+            "locked_until": None,
+        }
+        if reaction.reacted_at is not None:
+            values["reacted_at"] = reaction.reacted_at
+        if reaction.snoozed_until is not None:
+            values["snoozed_until"] = reaction.snoozed_until
+            values["next_attempt_at"] = reaction.snoozed_until
+
+        await self._deliveries.update_fields(delivery.id, **values)
         await self._deliveries.add_action(
-            delivery.id, delivery.user_id, _ACTION_KINDS[action], created_at=now
+            delivery.id,
+            delivery.user_id,
+            reaction.kind,
+            created_at=now,
+            payload={"minutes": snooze_minutes} if reaction.kind is ActionKind.SNOOZE else None,
         )
 
-        if await self._occurrences.all_deliveries_terminal(occurrence.id):
-            await self._occurrences.set_status(
-                occurrence.id,
-                OccurrenceStatus.DONE if action == "done" else OccurrenceStatus.SKIPPED,
-            )
-        return ReactionResult(applied=True, action=action, status=status)
+    async def _close_occurrence(self, occurrence: Occurrence, reaction: Reaction) -> None:
+        """Roll the occurrence up once its last recipient has answered."""
+        if not reaction.is_terminal:
+            return
+        status = roll_up_occurrence(
+            reaction.kind,
+            every_delivery_terminal=await self._occurrences.all_deliveries_terminal(occurrence.id),
+        )
+        if status is not None:
+            await self._occurrences.set_status(occurrence.id, status)
