@@ -17,14 +17,26 @@ from app.domain.recurrence import next_occurrences, to_utc
 from app.domain.reminders import (
     BOUNDARY,
     build_daily_schedule,
+    build_interval_schedule,
+    build_monthly_schedule,
     build_once_schedule,
+    build_weekly_schedule,
     first_fire_at,
     local_today,
     normalize_note,
     normalize_reminder_title,
     parse_user_date,
+    parse_user_interval,
+    parse_user_window,
 )
-from app.domain.schedules import TIMES_MAX_LENGTH, format_local_date
+from app.domain.schedules import (
+    INTERVAL_MAX_MINUTES,
+    INTERVAL_MIN_MINUTES,
+    MONTH_DAYS_MAX_LENGTH,
+    TIMES_MAX_LENGTH,
+    format_hhmm,
+    format_local_date,
+)
 from tests.unit.strategies import (
     local_dates,
     local_times,
@@ -219,3 +231,158 @@ class TestFirstFire:
         assert moment is not None
         local_day = moment.astimezone(tz).date()
         assert moment == to_utc(datetime.combine(local_day, at), tz)
+
+
+class TestWeeklySchedule:
+    """Acceptance: a weekly reminder fires on the days the user toggled."""
+
+    @given(
+        times=st.lists(local_times, min_size=1, max_size=TIMES_MAX_LENGTH),
+        weekdays=st.lists(st.integers(1, 7), min_size=1, max_size=20),
+    )
+    def test_answers_survive_in_any_order_and_without_duplicates(self, times, weekdays):
+        schedule = build_weekly_schedule(times, weekdays)
+
+        assert schedule.times == sorted(set(times))
+        assert schedule.weekdays == sorted(set(weekdays))
+
+    @given(
+        times=st.lists(local_times, min_size=1, max_size=TIMES_MAX_LENGTH),
+        weekdays=st.lists(st.integers(1, 7), min_size=1, max_size=7, unique=True),
+    )
+    def test_the_order_the_buttons_were_pressed_in_does_not_matter(self, times, weekdays):
+        assert build_weekly_schedule(times, weekdays) == build_weekly_schedule(
+            list(reversed(times)), list(reversed(weekdays))
+        )
+
+    def test_a_week_without_a_day_is_refused(self):
+        with pytest.raises(ValidationError):
+            build_weekly_schedule([time(8, 0)], [])
+
+    @given(day=st.integers().filter(lambda value: not 1 <= value <= 7))
+    def test_a_day_outside_the_iso_week_is_refused(self, day):
+        with pytest.raises(ValidationError):
+            build_weekly_schedule([time(8, 0)], [day])
+
+
+class TestMonthlySchedule:
+    """Acceptance: a monthly reminder says what to do in a month that is short."""
+
+    @given(
+        times=st.lists(local_times, min_size=1, max_size=TIMES_MAX_LENGTH),
+        days=st.lists(st.integers(1, 31), min_size=1, max_size=40),
+        rule=st.sampled_from(["last_day", "skip"]),
+    )
+    def test_answers_survive_in_any_order_and_without_duplicates(self, times, days, rule):
+        schedule = build_monthly_schedule(times, days, rule)
+
+        assert schedule.days == sorted(set(days))
+        assert schedule.on_missing_day == rule
+
+    def test_a_month_without_a_day_is_refused(self):
+        with pytest.raises(ValidationError):
+            build_monthly_schedule([time(8, 0)], [])
+
+    @given(day=st.integers().filter(lambda value: not 1 <= value <= MONTH_DAYS_MAX_LENGTH))
+    def test_a_day_no_month_has_is_refused(self, day):
+        with pytest.raises(ValidationError):
+            build_monthly_schedule([time(8, 0)], [day])
+
+    @given(rule=st.text().filter(lambda value: value not in ("last_day", "skip")))
+    def test_an_unknown_missing_day_rule_is_refused(self, rule):
+        """The wizard maps a button onto this value; a typo must not reach JSONB."""
+        with pytest.raises(ValidationError):
+            build_monthly_schedule([time(8, 0)], [15], rule)
+
+
+class TestIntervalSchedule:
+    """Acceptance: an interval reminder repeats inside a window of the day."""
+
+    @given(
+        every_minutes=st.integers(INTERVAL_MIN_MINUTES, INTERVAL_MAX_MINUTES),
+        start=local_times,
+        end=local_times,
+    )
+    def test_any_window_the_contract_allows_is_accepted(self, every_minutes, start, end):
+        """A window crossing midnight is normal and equal ends mean all day."""
+        schedule = build_interval_schedule(every_minutes, start, end)
+
+        assert (schedule.window_start, schedule.window_end) == (start, end)
+
+    @given(
+        every_minutes=st.integers().filter(
+            lambda value: not INTERVAL_MIN_MINUTES <= value <= INTERVAL_MAX_MINUTES
+        )
+    )
+    def test_a_step_outside_the_contract_is_refused(self, every_minutes):
+        with pytest.raises(ValidationError):
+            build_interval_schedule(every_minutes, time(9, 0), time(21, 0))
+
+
+class TestManualInterval:
+    @given(minutes=st.integers(INTERVAL_MIN_MINUTES, INTERVAL_MAX_MINUTES))
+    def test_a_number_inside_the_contract_round_trips(self, minutes):
+        assert parse_user_interval(f"  {minutes} ") == minutes
+
+    @given(
+        minutes=st.integers().filter(
+            lambda value: not INTERVAL_MIN_MINUTES <= value <= INTERVAL_MAX_MINUTES
+        )
+    )
+    def test_a_number_outside_the_contract_is_refused(self, minutes):
+        with pytest.raises(ValidationError):
+            parse_user_interval(str(minutes))
+
+    @pytest.mark.parametrize("raw", ["", "  ", "60 minutes", "1.5", "час", "9e2"])
+    def test_anything_that_is_not_a_number_is_refused(self, raw):
+        with pytest.raises(ValidationError):
+            parse_user_interval(raw)
+
+
+class TestManualWindow:
+    @given(start=local_times, end=local_times)
+    def test_a_typed_window_comes_back_as_the_two_times_it_names(self, start, end):
+        raw = f"{format_hhmm(start)}-{format_hhmm(end)}"
+
+        assert parse_user_window(raw) == (start, end)
+
+    @given(start=local_times, end=local_times)
+    def test_spaces_around_the_separator_are_ignored(self, start, end):
+        raw = f" {format_hhmm(start)} - {format_hhmm(end)} "
+
+        assert parse_user_window(raw) == (start, end)
+
+    @pytest.mark.parametrize(
+        "raw", ["", "09:00", "0900-2100", "09:00–21:00", "25:00-21:00", "09:00-21:60", "-"]
+    )
+    def test_a_window_outside_the_one_format_is_refused(self, raw):
+        with pytest.raises(ValidationError):
+            parse_user_window(raw)
+
+
+class TestScheduleReachesTheSameFirstMoment:
+    """Every kind the wizard builds is a kind the planner can materialise."""
+
+    @given(tz=timezones, now=utc_moments)
+    def test_a_weekly_schedule_fires_on_a_day_it_names(self, tz, now):
+        schedule = build_weekly_schedule([time(9, 0)], [1, 4])
+        moment = first_fire_at(schedule, tz, now)
+
+        assert moment is not None
+        assert moment.astimezone(tz).isoweekday() in (1, 4)
+
+    @given(tz=timezones, now=utc_moments)
+    def test_a_monthly_schedule_fires_on_a_day_it_names(self, tz, now):
+        schedule = build_monthly_schedule([time(9, 0)], [1, 15], "skip")
+        moment = first_fire_at(schedule, tz, now)
+
+        assert moment is not None
+        assert moment.astimezone(tz).day in (1, 15)
+
+    @given(tz=timezones, now=utc_moments)
+    def test_an_interval_schedule_fires_inside_its_window(self, tz, now):
+        schedule = build_interval_schedule(60, time(9, 0), time(21, 0))
+        moment = first_fire_at(schedule, tz, now)
+
+        assert moment is not None
+        assert time(9, 0) <= moment.astimezone(tz).time() <= time(21, 0)
