@@ -194,10 +194,6 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
         "ru": "Выбери хотя бы одно число.",
         "en": "Pick at least one day of the month.",
     },
-    "wizard.mdays_full": {
-        "ru": "Больше {limit} чисел в месяце не бывает.",
-        "en": "No more than {limit} days in a month.",
-    },
     "wizard.ask_missing_day": {
         "ru": "А если в месяце нет такого числа?",
         "en": "And in a month that has no such day?",

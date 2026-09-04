@@ -1113,6 +1113,8 @@ WINDOW_ATOM_LENGTH: Final = 8
 |---|---|
 | `weekly_days_kb(selected, lang)` | `weekday_picker_kb` §9 + «Отмена» |
 | `monthday_picker_kb(selected, lang)` | числа 1..31 тумблерами, сетка по 7 + «Готово» + «Отмена» |
+
+У чисел месяца нет ключа «список полон»: клавиатура предлагает все `MONTH_DAYS_MAX_LENGTH` чисел, так что превысить лимит нечем. У времён он есть, потому что ручной ввод добавляет времена сверх пресетов.
 | `interval_kb(lang)` | `interval_picker_kb` §9 + ручной ввод + «Отмена» |
 | `window_kb(lang)` | `window_picker_kb` §9 + ручной ввод + «Отмена» |
 | `missing_day_kb(lang)` | Последний день / Пропустить + «Отмена» |
@@ -1127,7 +1129,7 @@ WINDOW_ATOM_LENGTH: Final = 8
 
 ### 19.4 Ключи текстов (`bot/render/texts.py`)
 
-`wizard.ask_weekdays`, `wizard.weekdays_none`, `wizard.weekdays_empty`, `wizard.ask_mdays`, `wizard.mdays_none`, `wizard.mdays_empty`, `wizard.mdays_full`, `wizard.ask_missing_day`, `wizard.interval_manual`, `wizard.interval_invalid`, `wizard.window_manual`, `wizard.window_invalid`, `wizard.confirm_weekly`, `wizard.confirm_monthly`, `btn.kind_weekly`, `btn.kind_monthly`, `btn.missing_last_day`, `btn.missing_skip`, `missing.last_day`, `missing.skip`.
+`wizard.ask_weekdays`, `wizard.weekdays_none`, `wizard.weekdays_empty`, `wizard.ask_mdays`, `wizard.mdays_none`, `wizard.mdays_empty`, `wizard.ask_missing_day`, `wizard.interval_manual`, `wizard.interval_invalid`, `wizard.window_manual`, `wizard.window_invalid`, `wizard.confirm_weekly`, `wizard.confirm_monthly`, `btn.kind_weekly`, `btn.kind_monthly`, `btn.missing_last_day`, `btn.missing_skip`, `missing.last_day`, `missing.skip`.
 
 У каждого ключа обязательны обе локали и совпадающий набор плейсхолдеров — держится контрактным тестом.
 
