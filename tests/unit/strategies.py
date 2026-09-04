@@ -17,7 +17,10 @@ from app.domain.schedules import (
     WeeklySchedule,
 )
 
-#: Zones with awkward transitions: half-hour offsets, southern hemisphere, DST.
+#: Zones the DST invariants are checked against (tech.md 19.6). Every awkward
+#: shape is represented: an hour shift in each hemisphere, a half-hour shift, a
+#: half-hour base offset, a zone that never shifts, and UTC. `Europe/Moscow`
+#: alone proves nothing about DST, which is why it never stands on its own.
 TIMEZONE_NAMES = (
     "UTC",
     "Europe/Berlin",
@@ -28,7 +31,16 @@ TIMEZONE_NAMES = (
     "Asia/Kolkata",
 )
 
+#: The subset that actually shifts, for tests that need a transition to exist.
+DST_TIMEZONE_NAMES = (
+    "Europe/Berlin",
+    "America/New_York",
+    "Australia/Lord_Howe",
+    "Pacific/Chatham",
+)
+
 timezones = st.sampled_from(TIMEZONE_NAMES).map(ZoneInfo)
+dst_timezones = st.sampled_from(DST_TIMEZONE_NAMES).map(ZoneInfo)
 
 local_times = st.builds(
     time, hour=st.integers(min_value=0, max_value=23), minute=st.integers(0, 59)
@@ -69,6 +81,20 @@ weekly_schedules = st.builds(
     WeeklySchedule,
     times=time_lists,
     weekdays=st.lists(st.integers(min_value=1, max_value=7), min_size=1, max_size=7, unique=True),
+)
+
+monthly_last_day_schedules = st.builds(
+    MonthlySchedule,
+    times=time_lists,
+    days=st.lists(st.integers(min_value=1, max_value=31), min_size=1, max_size=6, unique=True),
+    on_missing_day=st.just("last_day"),
+)
+
+monthly_skip_schedules = st.builds(
+    MonthlySchedule,
+    times=time_lists,
+    days=st.lists(st.integers(min_value=1, max_value=31), min_size=1, max_size=6, unique=True),
+    on_missing_day=st.just("skip"),
 )
 
 monthly_schedules = st.builds(

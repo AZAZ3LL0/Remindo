@@ -1,5 +1,10 @@
-"""Invariants of next_occurrences (tech.md 10)."""
+"""Invariants of next_occurrences (tech.md 10, 19.6).
 
+Transition dates come from `zoneinfo` through `tests/unit/dst.py`, so the
+rules below stay true when tzdata ships a new release.
+"""
+
+import calendar
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from zoneinfo import ZoneInfo
@@ -9,13 +14,35 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from app.domain.recurrence import next_occurrences, to_utc
+from app.domain.reminders import BOUNDARY
 from app.domain.schedules import (
     DailySchedule,
     IntervalSchedule,
     WeeklySchedule,
+    parse_hhmm,
     parse_schedule,
 )
-from tests.unit.strategies import ranges, schedules, timezones, wall_clock_schedules
+from tests.unit.dst import (
+    ambiguous_local_time,
+    is_nonexistent,
+    local_naive,
+    nonexistent_local_time,
+    transitions,
+)
+from tests.unit.strategies import (
+    DST_TIMEZONE_NAMES,
+    daily_schedules,
+    dst_timezones,
+    hhmm,
+    local_dates,
+    monthly_last_day_schedules,
+    monthly_skip_schedules,
+    ranges,
+    schedules,
+    timezones,
+    wall_clock_schedules,
+    weekly_schedules,
+)
 
 SLOW = settings(max_examples=40, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 
@@ -69,12 +96,21 @@ def test_range_splits_without_gaps_or_duplicates(schedule, tz, window):
 @SLOW
 @given(schedule=wall_clock_schedules, tz=timezones, window=ranges(max_days=10))
 def test_wall_clock_time_survives(schedule, tz, window):
-    """Rule 1: 07:30 stays 07:30, except where the local clock jumps."""
+    """Rules 1 and 3: 07:30 stays 07:30 unless 07:30 did not happen that day.
+
+    A day carrying a transition is the interesting day, so it is not skipped.
+    The only local time a moment may show outside `times` is one the wizard
+    asked for, that the clock jumped over, and that therefore moved forward.
+    """
     after, until = window
     for moment in next_occurrences(schedule, tz, after=after, until=until, limit=100):
-        if offset_changes_that_day(moment, tz):
+        local = moment.astimezone(tz)
+        if local.time() in schedule.times:
             continue
-        assert moment.astimezone(tz).time() in schedule.times
+        assert any(
+            wanted < local.time() and is_nonexistent(datetime.combine(local.date(), wanted), tz)
+            for wanted in schedule.times
+        ), f"{local} matches no time in {schedule.times}"
 
 
 @SLOW
@@ -195,3 +231,179 @@ def test_naive_bounds_are_rejected():
             until=datetime(2026, 1, 2, tzinfo=UTC),
             limit=5,
         )
+
+
+@SLOW
+@given(
+    tz=timezones,
+    every_minutes=st.integers(min_value=5, max_value=720),
+    window=st.tuples(hhmm, hhmm),
+    day=local_dates,
+)
+def test_interval_spacing_is_absolute_inside_one_window(tz, every_minutes, window, day):
+    """Rule 2, stated exactly: inside one window the step never bends.
+
+    The range is the window itself, so nothing from a neighbouring window can
+    creep in and make a shorter gap look legal. A window carrying a transition
+    is the interesting case, which is why the day is drawn freely.
+    """
+    window_start, window_end = window
+    schedule = IntervalSchedule(
+        every_minutes=every_minutes, window_start=window_start, window_end=window_end
+    )
+    start = to_utc(datetime.combine(day, parse_hhmm(window_start)), tz)
+    end_day = day if parse_hhmm(window_end) > parse_hhmm(window_start) else day + timedelta(days=1)
+    end = to_utc(datetime.combine(end_day, parse_hhmm(window_end)), tz)
+    if end <= start:
+        return
+
+    result = next_occurrences(
+        schedule, tz, after=start - BOUNDARY, until=end - BOUNDARY, limit=1000
+    )
+
+    assert result, "a window wider than the step fires at least once"
+    assert result[0] == start
+    for previous, current in pairwise(result):
+        assert current - previous == timedelta(minutes=every_minutes)
+
+
+@SLOW
+@given(schedule=weekly_schedules, tz=timezones, window=ranges(max_days=14))
+def test_weekly_fires_only_on_chosen_weekdays_locally(schedule, tz, window):
+    """The weekday is the user's weekday. In UTC it is often a different day."""
+    after, until = window
+    for moment in next_occurrences(schedule, tz, after=after, until=until, limit=100):
+        assert moment.astimezone(tz).isoweekday() in schedule.weekdays
+
+
+@SLOW
+@given(schedule=monthly_skip_schedules, tz=timezones, window=ranges(max_days=14))
+def test_monthly_skip_never_invents_a_day(schedule, tz, window):
+    """`skip` means the month is dropped, not moved onto a neighbouring day."""
+    after, until = window
+    for moment in next_occurrences(schedule, tz, after=after, until=until, limit=100):
+        assert moment.astimezone(tz).day in schedule.days
+
+
+@SLOW
+@given(schedule=monthly_last_day_schedules, tz=timezones, window=ranges(max_days=14))
+def test_monthly_last_day_only_falls_back_to_the_end_of_the_month(schedule, tz, window):
+    """`last_day` moves a missing day to the month's end and nowhere else."""
+    after, until = window
+    for moment in next_occurrences(schedule, tz, after=after, until=until, limit=100):
+        local = moment.astimezone(tz)
+        last = calendar.monthrange(local.year, local.month)[1]
+        assert local.day in schedule.days or local.day == last
+
+
+@SLOW
+@given(schedule=daily_schedules, tz=timezones, window=ranges(max_days=21))
+def test_daily_keeps_its_stride_in_days(schedule, tz, window):
+    """`every_n_days` counts local days, so a DST day still counts as one."""
+    after, until = window
+    dates = sorted(
+        {
+            moment.astimezone(tz).date()
+            for moment in next_occurrences(schedule, tz, after=after, until=until, limit=200)
+        }
+    )
+    for previous, current in pairwise(dates):
+        assert (current - previous).days % schedule.every_n_days == 0
+
+
+def dst_cases(pick):
+    """Every transition of every shifting zone that `pick` finds a moment in."""
+    cases = []
+    for name in DST_TIMEZONE_NAMES:
+        tz = ZoneInfo(name)
+        for transition in transitions(tz):
+            naive = pick(transition, tz)
+            if naive is not None:
+                cases.append(pytest.param(tz, transition, naive, id=f"{name}@{transition.date()}"))
+    return cases
+
+
+@pytest.mark.parametrize(("tz", "transition", "naive"), dst_cases(nonexistent_local_time))
+def test_rule_three_holds_at_every_spring_forward(tz, transition, naive):
+    """A time the clock skipped becomes the first moment that does exist.
+
+    Not merely "some later moment": one second earlier the local clock had not
+    reached `naive` yet, so nothing between the two was passed over.
+    """
+    resolved = to_utc(naive, tz)
+
+    assert local_naive(resolved, tz) > naive
+    assert local_naive(resolved - timedelta(seconds=1), tz) < naive
+    assert resolved == transition
+
+
+@pytest.mark.parametrize(("tz", "transition", "naive"), dst_cases(ambiguous_local_time))
+def test_rule_four_holds_at_every_fall_back(tz, transition, naive):
+    """A time the clock passed twice resolves to the first of the two."""
+    early = naive.replace(tzinfo=tz, fold=0).astimezone(UTC)
+    late = naive.replace(tzinfo=tz, fold=1).astimezone(UTC)
+
+    assert early < transition <= late, "the sample really is ambiguous"
+
+    resolved = to_utc(naive, tz)
+
+    assert resolved == min(early, late)
+    assert local_naive(resolved, tz) == naive
+
+
+def transition_cases():
+    """Every transition of every shifting zone, whichever way the clock moved."""
+    cases = []
+    for name in DST_TIMEZONE_NAMES:
+        tz = ZoneInfo(name)
+        for transition in transitions(tz):
+            cases.append(pytest.param(tz, transition, id=f"{name}@{transition.date()}"))
+    return cases
+
+
+@pytest.mark.parametrize(("tz", "transition"), transition_cases())
+@pytest.mark.parametrize("every_minutes", [30, 60, 90])
+def test_interval_keeps_absolute_spacing_across_every_transition(every_minutes, tz, transition):
+    """Rule 2 on the only days where it can be broken.
+
+    The property test above draws a day at random and almost never lands on a
+    transition, so the rule is also checked on each transition by name. A
+    schedule stepping wall-clock time instead of absolute time survives the
+    former and fails here.
+    """
+    schedule = IntervalSchedule(
+        every_minutes=every_minutes, window_start="00:00", window_end="00:00"
+    )
+    day = local_naive(transition, tz).date()
+    start = to_utc(datetime.combine(day, datetime.min.time()), tz)
+    end = to_utc(datetime.combine(day + timedelta(days=1), datetime.min.time()), tz)
+
+    assert start < transition < end, "the sample day really carries the transition"
+    assert end - start != timedelta(days=1), "and the day really is longer or shorter"
+
+    result = next_occurrences(schedule, tz, after=start - BOUNDARY, until=end - BOUNDARY, limit=200)
+
+    assert result[0] == start
+    for previous, current in pairwise(result):
+        assert current - previous == timedelta(minutes=every_minutes)
+
+
+@SLOW
+@given(schedule=wall_clock_schedules, tz=dst_timezones)
+def test_a_wall_clock_schedule_survives_every_transition(schedule, tz):
+    """Every transition of the zone is crossed, not only the one a range hit."""
+    for transition in transitions(tz):
+        result = next_occurrences(
+            schedule,
+            tz,
+            after=transition - timedelta(days=2),
+            until=transition + timedelta(days=2),
+            limit=200,
+        )
+        assert result == sorted(set(result))
+        for moment in result:
+            local = moment.astimezone(tz)
+            assert local.time() in schedule.times or any(
+                wanted < local.time() and is_nonexistent(datetime.combine(local.date(), wanted), tz)
+                for wanted in schedule.times
+            )
