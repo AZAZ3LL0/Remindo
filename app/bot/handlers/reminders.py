@@ -61,7 +61,9 @@ from app.domain.reminders import (
 from app.domain.schedules import (
     INTERVAL_MAX_MINUTES,
     INTERVAL_MIN_MINUTES,
+    MONTH_DAYS_MAX_LENGTH,
     TIMES_MAX_LENGTH,
+    WEEKDAYS_MAX_LENGTH,
     WINDOW_ATOM_LENGTH,
     Schedule,
     dump_schedule,
@@ -315,11 +317,12 @@ async def handle_weekdays(
         await _show(query, *_times_screen([], user.language))
         return
 
-    if not callback_data.value.isdigit():
+    day = _preset_day(callback_data.value, WEEKDAYS_MAX_LENGTH)
+    if day is None:
         await query.answer()
         return
 
-    days = _toggle_day(days, int(callback_data.value))
+    days = _toggle_day(days, day)
     await state.update_data({WEEKDAYS_KEY: days})
     await query.answer()
     await _show(query, *_weekdays_screen(days, user.language))
@@ -342,11 +345,12 @@ async def handle_month_days(
         )
         return
 
-    if not callback_data.value.isdigit():
+    day = _preset_day(callback_data.value, MONTH_DAYS_MAX_LENGTH)
+    if day is None:
         await query.answer()
         return
 
-    days = _toggle_day(days, int(callback_data.value))
+    days = _toggle_day(days, day)
     await state.update_data({MONTH_DAYS_KEY: days})
     await query.answer()
     await _show(query, *_month_days_screen(days, user.language))
@@ -504,6 +508,18 @@ def _preset_time(value: str) -> time | None:
         return parse_hhmm(unpack_wall_time(value))
     except ValueError:
         return None
+
+
+def _preset_day(value: str, high: int) -> int | None:
+    """A day number off a keyboard, or `None` when it is not one.
+
+    The bound matters: an out-of-range number would sit in FSM data until the
+    renderer looked up a weekday that does not exist.
+    """
+    if not value.isdigit():
+        return None
+    day = int(value)
+    return day if 1 <= day <= high else None
 
 
 async def _remember_date(state: FSMContext, day: date) -> None:
