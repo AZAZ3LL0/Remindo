@@ -164,8 +164,8 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
     "wizard.ask_date": {"ru": "На какой день?", "en": "Which day?"},
     "wizard.ask_at": {"ru": "Во сколько напомнить?", "en": "At what time?"},
     "wizard.ask_times": {
-        "ru": "Во сколько напоминать каждый день? Выбрано: {times}",
-        "en": "At what times every day? Selected: {times}",
+        "ru": "Во сколько напоминать? Выбрано: {times}",
+        "en": "At what times? Selected: {times}",
     },
     "wizard.times_none": {"ru": "пока ничего", "en": "nothing yet"},
     "wizard.times_empty": {
@@ -175,6 +175,48 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
     "wizard.times_full": {
         "ru": "Больше {limit} времён в день не бывает.",
         "en": "No more than {limit} times a day.",
+    },
+    "wizard.ask_weekdays": {
+        "ru": "По каким дням недели? Выбрано: {weekdays}",
+        "en": "On which weekdays? Selected: {weekdays}",
+    },
+    "wizard.weekdays_none": {"ru": "пока ничего", "en": "nothing yet"},
+    "wizard.weekdays_empty": {
+        "ru": "Выбери хотя бы один день недели.",
+        "en": "Pick at least one weekday.",
+    },
+    "wizard.ask_mdays": {
+        "ru": "По каким числам месяца? Выбрано: {days}",
+        "en": "On which days of the month? Selected: {days}",
+    },
+    "wizard.mdays_none": {"ru": "пока ничего", "en": "nothing yet"},
+    "wizard.mdays_empty": {
+        "ru": "Выбери хотя бы одно число.",
+        "en": "Pick at least one day of the month.",
+    },
+    "wizard.mdays_full": {
+        "ru": "Больше {limit} чисел в месяце не бывает.",
+        "en": "No more than {limit} days in a month.",
+    },
+    "wizard.ask_missing_day": {
+        "ru": "А если в месяце нет такого числа?",
+        "en": "And in a month that has no such day?",
+    },
+    "wizard.interval_manual": {
+        "ru": "Пришли интервал в минутах, например 90.",
+        "en": "Send the interval in minutes, for example 90.",
+    },
+    "wizard.interval_invalid": {
+        "ru": "Интервал от {minimum} до {maximum} минут.",
+        "en": "Interval must be {minimum} to {maximum} minutes.",
+    },
+    "wizard.window_manual": {
+        "ru": "Пришли окно в формате HH:MM-HH:MM, например 09:00-21:00.",
+        "en": "Send a window as HH:MM-HH:MM, for example 09:00-21:00.",
+    },
+    "wizard.window_invalid": {
+        "ru": "Не понял окно. Формат HH:MM-HH:MM, например 09:00-21:00.",
+        "en": "Unclear window. Use HH:MM-HH:MM, for example 09:00-21:00.",
     },
     "wizard.date_manual": {
         "ru": "Пришли дату в формате ГГГГ-ММ-ДД, например 2026-09-01.",
@@ -214,6 +256,16 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
             "from {window_start} to {window_end}?"
         ),
     },
+    "wizard.confirm_weekly": {
+        "ru": "Создать напоминание «{title}» по {weekdays} в {times}?",
+        "en": "Create reminder «{title}» on {weekdays} at {times}?",
+    },
+    "wizard.confirm_monthly": {
+        "ru": "Создать напоминание «{title}» {days} числа в {times}? Короткий месяц: {missing}.",
+        "en": "Create reminder «{title}» on day {days} at {times}? Short month: {missing}.",
+    },
+    "missing.last_day": {"ru": "последний день", "en": "the last day"},
+    "missing.skip": {"ru": "пропустить", "en": "skip"},
     "wizard.created": {"ru": "Напоминание создано.", "en": "Reminder created."},
     "wizard.cancelled": {"ru": "Отменено.", "en": "Cancelled."},
     "wizard.title_invalid": {
@@ -265,7 +317,11 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
     "btn.ready": {"ru": "Готово", "en": "Done"},
     "btn.kind_once": {"ru": "Один раз", "en": "Once"},
     "btn.kind_daily": {"ru": "Каждый день", "en": "Every day"},
+    "btn.kind_weekly": {"ru": "По дням недели", "en": "By weekday"},
+    "btn.kind_monthly": {"ru": "По числам месяца", "en": "By month day"},
     "btn.kind_interval": {"ru": "По интервалу", "en": "By interval"},
+    "btn.missing_last_day": {"ru": "Последний день", "en": "Last day"},
+    "btn.missing_skip": {"ru": "Пропустить месяц", "en": "Skip the month"},
     "btn.today": {"ru": "Сегодня", "en": "Today"},
     "btn.tomorrow": {"ru": "Завтра", "en": "Tomorrow"},
     "btn.back": {"ru": "‹ Назад", "en": "‹ Back"},
