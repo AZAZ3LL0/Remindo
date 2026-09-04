@@ -8,6 +8,7 @@ import sqlalchemy as sa
 from app.db.models import Delivery, DeliveryAction, Occurrence
 from app.domain.contracts import ActionKind, DeliveryStatus, OccurrenceStatus
 from app.domain.errors import NotFoundError, PermissionDeniedError
+from app.domain.reactions import RejectReason
 from app.services.reactions import ReactionsService
 from tests.conftest import FROZEN_NOW
 
@@ -55,7 +56,7 @@ async def test_reacting_twice_has_one_effect(db_session, fake_clock, sent, actio
 
     assert first.applied is True
     assert second.applied is False
-    assert second.reason == "already_handled"
+    assert second.reason is RejectReason.ALREADY_HANDLED
     assert (await reload(db_session, Delivery, delivery.id)).status is status
     assert await count_actions(db_session, delivery.id, kind) == 1
 
@@ -113,7 +114,7 @@ async def test_expired_occurrence_rejects_the_reaction(db_session, fake_clock, s
     )
 
     assert result.applied is False
-    assert result.reason == "expired"
+    assert result.reason is RejectReason.EXPIRED
     assert await count_actions(db_session, delivery.id) == 0
 
 
@@ -129,3 +130,68 @@ async def test_another_user_may_not_react(db_session, fake_clock, sent, user_fac
 async def test_unknown_delivery_is_reported(db_session, fake_clock):
     with pytest.raises(NotFoundError):
         await ReactionsService(db_session, fake_clock).react(10**9, 1, "done")
+
+
+async def test_snoozing_twice_does_not_push_the_redelivery_further(db_session, fake_clock, sent):
+    """The stale button stays on screen; pressing it again must not move the queue."""
+    reminder, _, delivery = sent
+    service = ReactionsService(db_session, fake_clock)
+
+    await service.react(delivery.id, delivery.user_id, "snooze")
+    fake_clock.advance(timedelta(minutes=1))
+    await service.react(delivery.id, delivery.user_id, "snooze")
+
+    stored = await reload(db_session, Delivery, delivery.id)
+    assert stored.next_attempt_at == FROZEN_NOW + timedelta(minutes=reminder.snooze_minutes)
+    assert await count_actions(db_session, delivery.id, ActionKind.SNOOZE) == 1
+
+
+async def test_a_postponed_delivery_still_takes_a_final_answer(db_session, fake_clock, sent):
+    """Snoozing is not answering, so a duplicate message can still close it."""
+    _, occurrence, delivery = sent
+    service = ReactionsService(db_session, fake_clock)
+
+    await service.react(delivery.id, delivery.user_id, "snooze")
+    result = await service.react(delivery.id, delivery.user_id, "done")
+
+    assert result.applied is True
+    stored = await reload(db_session, Delivery, delivery.id)
+    assert stored.status is DeliveryStatus.DONE
+    assert stored.reacted_at == FROZEN_NOW
+    assert (await reload(db_session, Occurrence, occurrence.id)).status is OccurrenceStatus.DONE
+
+
+async def test_a_reaction_releases_the_dispatcher_lease(db_session, fake_clock, sent):
+    """A reacted row is nobody's to send; the lease dies with the answer."""
+    _, _, delivery = sent
+    await db_session.execute(
+        sa.update(Delivery)
+        .where(Delivery.id == delivery.id)
+        .values(locked_until=FROZEN_NOW + timedelta(minutes=1))
+    )
+    await db_session.commit()
+
+    await ReactionsService(db_session, fake_clock).react(delivery.id, delivery.user_id, "skip")
+
+    stored = await reload(db_session, Delivery, delivery.id)
+    assert stored.status is DeliveryStatus.SKIPPED
+    assert stored.locked_until is None
+
+
+async def test_a_closed_occurrence_refuses_a_late_reaction(db_session, fake_clock, sent):
+    """The reaper already wrote its verdict; a late tap must not overwrite it."""
+    _, occurrence, delivery = sent
+    await db_session.execute(
+        sa.update(Occurrence)
+        .where(Occurrence.id == occurrence.id)
+        .values(status=OccurrenceStatus.EXPIRED)
+    )
+    await db_session.commit()
+
+    result = await ReactionsService(db_session, fake_clock).react(
+        delivery.id, delivery.user_id, "done"
+    )
+
+    assert (result.applied, result.reason) == (False, RejectReason.EXPIRED)
+    assert (await reload(db_session, Occurrence, occurrence.id)).status is OccurrenceStatus.EXPIRED
+    assert await count_actions(db_session, delivery.id) == 0
