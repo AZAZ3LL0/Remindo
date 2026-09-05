@@ -117,3 +117,107 @@ class RecipientsRepository:
             ),
         )
         return (await self._session.execute(stmt)).scalars().all()
+
+    async def get(self, reminder_id: int, user_id: int) -> ReminderRecipient | None:
+        stmt = sa.select(ReminderRecipient).where(
+            ReminderRecipient.reminder_id == reminder_id,
+            ReminderRecipient.user_id == user_id,
+        )
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def count_watchers(self, reminder_id: int) -> int:
+        """Recipients other than the owner, accepted or still deciding.
+
+        A pending row counts: it holds a place the limit of tech.md 22.4 is
+        there to protect, and a link that hands out unlimited pending rows is
+        the same amplifier as one that hands out unlimited watchers.
+        """
+        stmt = sa.select(sa.func.count()).where(
+            ReminderRecipient.reminder_id == reminder_id,
+            ReminderRecipient.role == RecipientRole.WATCHER,
+        )
+        return int((await self._session.execute(stmt)).scalar_one())
+
+    async def count_accepted_watchers(self, reminder_id: int) -> int:
+        """Watchers the reminder actually reaches, for the owner's card."""
+        stmt = sa.select(sa.func.count()).where(
+            ReminderRecipient.reminder_id == reminder_id,
+            ReminderRecipient.role == RecipientRole.WATCHER,
+            ReminderRecipient.accepted_at.is_not(None),
+        )
+        return int((await self._session.execute(stmt)).scalar_one())
+
+    async def list_for_reminder(self, reminder_id: int) -> Sequence[ReminderRecipient]:
+        stmt = (
+            sa.select(ReminderRecipient)
+            .where(ReminderRecipient.reminder_id == reminder_id)
+            .order_by(ReminderRecipient.id)
+        )
+        return (await self._session.execute(stmt)).scalars().all()
+
+    async def list_shared_with(
+        self, user_id: int, limit: int, offset: int
+    ) -> Sequence[tuple[ReminderRecipient, Reminder]]:
+        """Reminders somebody else shares with this user, pending ones included.
+
+        Archived reminders are left out for the same reason the owner's list
+        leaves them out (tech.md 21.4): nothing there fires again.
+        """
+        stmt = (
+            sa.select(ReminderRecipient, Reminder)
+            .join(Reminder, Reminder.id == ReminderRecipient.reminder_id)
+            .where(
+                ReminderRecipient.user_id == user_id,
+                ReminderRecipient.role == RecipientRole.WATCHER,
+                Reminder.status != ReminderStatus.ARCHIVED,
+            )
+            .order_by(ReminderRecipient.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        return list((await self._session.execute(stmt)).tuples().all())
+
+    async def count_shared_with(self, user_id: int) -> int:
+        stmt = (
+            sa.select(sa.func.count())
+            .select_from(ReminderRecipient)
+            .join(Reminder, Reminder.id == ReminderRecipient.reminder_id)
+            .where(
+                ReminderRecipient.user_id == user_id,
+                ReminderRecipient.role == RecipientRole.WATCHER,
+                Reminder.status != ReminderStatus.ARCHIVED,
+            )
+        )
+        return int((await self._session.execute(stmt)).scalar_one())
+
+    async def accept(self, reminder_id: int, user_id: int, now: datetime) -> int:
+        """Mark a pending recipient as accepted.
+
+        Only a pending row is touched, so a second press changes nothing and
+        does not move the moment the first press recorded.
+        """
+        stmt = (
+            sa.update(ReminderRecipient)
+            .where(
+                ReminderRecipient.reminder_id == reminder_id,
+                ReminderRecipient.user_id == user_id,
+                ReminderRecipient.role == RecipientRole.WATCHER,
+                ReminderRecipient.accepted_at.is_(None),
+            )
+            .values(accepted_at=now)
+            .returning(ReminderRecipient.id)
+        )
+        return len((await self._session.execute(stmt)).scalars().all())
+
+    async def remove_watcher(self, reminder_id: int, user_id: int) -> int:
+        """Drop a watcher row. The owner's row is never a candidate."""
+        stmt = (
+            sa.delete(ReminderRecipient)
+            .where(
+                ReminderRecipient.reminder_id == reminder_id,
+                ReminderRecipient.user_id == user_id,
+                ReminderRecipient.role == RecipientRole.WATCHER,
+            )
+            .returning(ReminderRecipient.id)
+        )
+        return len((await self._session.execute(stmt)).scalars().all())

@@ -157,6 +157,26 @@ class DeliveriesRepository:
         )
         return int((await self._session.execute(stmt)).scalar_one())
 
+    async def delete_pending_for_recipient(self, reminder_id: int, user_id: int) -> int:
+        """Take back what has not gone out to one recipient (tech.md 22.6).
+
+        Same rule as a pause (tech.md 21.3): `sent` stays because live buttons
+        are on somebody's screen, and `snoozed` stays because the user asked
+        for it later.
+        """
+        stmt = (
+            sa.delete(Delivery)
+            .where(
+                Delivery.user_id == user_id,
+                Delivery.status == DeliveryStatus.PENDING,
+                Delivery.occurrence_id.in_(
+                    sa.select(Occurrence.id).where(Occurrence.reminder_id == reminder_id)
+                ),
+            )
+            .returning(Delivery.id)
+        )
+        return len((await self._session.execute(stmt)).scalars().all())
+
     async def list_sent_for_occurrence(self, occurrence_id: int) -> Sequence[Delivery]:
         stmt = sa.select(Delivery).where(
             Delivery.occurrence_id == occurrence_id,

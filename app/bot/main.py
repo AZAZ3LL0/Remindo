@@ -12,6 +12,7 @@ from app.bot.handlers import (
     manage,
     reactions,
     reminders,
+    share,
     start,
     stats,
 )
@@ -34,6 +35,7 @@ def build_dispatcher(context: AppContext) -> Dispatcher:
         gateway=context.gateway,
         default_timezone=context.settings.default_timezone,
         default_language=context.settings.default_language,
+        bot_username=context.settings.bot_username,
     )
 
     db_middleware = DbSessionMiddleware(context.session_factory)
@@ -55,6 +57,7 @@ def build_dispatcher(context: AppContext) -> Dispatcher:
         categories.router,
         reminders.router,
         manage.router,
+        share.router,
         reactions.router,
         lists.router,
         stats.router,

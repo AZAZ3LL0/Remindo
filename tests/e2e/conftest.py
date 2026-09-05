@@ -16,6 +16,7 @@ from app.bot.handlers import manage as manage_handlers
 from app.bot.handlers import reactions as reactions_handlers
 from app.bot.handlers import reminders as reminders_handlers
 from app.bot.handlers import settings as settings_handlers
+from app.bot.handlers import share as share_handlers
 from app.bot.handlers import start as start_handlers
 from app.bot.handlers import stats as stats_handlers
 from app.bot.main import build_dispatcher
@@ -36,6 +37,7 @@ HANDLER_MODULES = (
     categories_handlers,
     reminders_handlers,
     manage_handlers,
+    share_handlers,
     reactions_handlers,
     lists_handlers,
     stats_handlers,
@@ -51,6 +53,7 @@ E2E_TABLES = (
     "deliveries",
     "occurrences",
     "reminder_recipients",
+    "reminder_invites",
     "reminders",
     "categories",
     "users",
