@@ -1877,7 +1877,7 @@ DIGEST_BATCH_SIZE=100
 
 ### 23.10 Ключи текстов (`bot/render/texts.py`)
 
-`stats.overall`, `stats.by_category`, `stats.category_item`, `stats.category_none`, `stats.card`, `stats.window`, `digest.title`, `digest.body`, `digest.category_item`, `settings.digest_on`, `settings.digest_off`, `settings.digest_saved`, `btn.digest_on`, `btn.digest_off`, `btn.stats_all`.
+`stats.by_category`, `stats.category_item`, `stats.category_none`, `stats.card`, `digest.title`, `digest.body`, `digest.category_item`, `settings.digest_on`, `settings.digest_off`, `settings.digest_saved`, `btn.digest_on`, `btn.digest_off`, `btn.stats_all`.
 
 Кнопок у переключателя две, а не одна: она рисуется той стороной, которую нажатие включает, по правилу §21.6, и подписанная одним словом на оба состояния она не сказала бы, что сделает.
 

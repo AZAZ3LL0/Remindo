@@ -472,8 +472,6 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
             "30 days: {rate30}% ({done30} of {total30})"
         ),
     },
-    "stats.window": {"ru": "за {days} дн.", "en": "over {days} d"},
-    "stats.overall": {"ru": "Все категории", "en": "All categories"},
     "stats.by_category": {"ru": "По категориям\n{items}", "en": "By category\n{items}"},
     "stats.category_item": {
         "ru": "{emoji} {title} — серия {streak} дн., 7 дней {rate7}%",
