@@ -1,37 +1,30 @@
-Closes the roadmap item **S9. Управление напоминаниями** (`tech.md` §15).
+Core contract change for the roadmap item **S10. Совместные напоминания** (`tech.md` §15). Bumps the core to **v9** and appends §22.
 
-Builds on the v8 contract PR and targets its branch; merge that one first.
+Merge this before the slice PR; the slice branches off it.
 
-## What the slice does
+## Why a contract change
 
-`/list` existed and could do nothing but page. Everything a reminder needs after it is created was missing.
+S10 had nowhere to land. An invitation had no row to live in, no factory to be pressed with, no strings to speak, and the link `t.me/<bot>?start=inv_<token>` had no bot name to be built from. None of that can be invented inside a slice PR (`tech.md` §0, §11.2).
 
-- **`/list` filters by category.** The filter travels with the arrows through `ListCb`, so it survives paging. A paused reminder is marked in the list, because an unmarked row reads as an active one.
-- **The card** states the schedule, the note, the snooze step and the repeat, not just the title and the next moment. It is the screen where the user decides what to change, so it has to show what there is to change. Its next-fire line reads from the queue and falls back to the schedule while the planner has not caught up.
-- **Pause and resume.** Only the button that changes something is drawn.
-- **Editing** covers title, note, category, schedule, snooze step and automatic repeat, one field per screen. The category question reuses the shared picker and the schedule question re-enters the wizard of S3: the questions are the same ones, and a second copy of them would be a second copy to keep in step. The reminder id in FSM data is what tells the wizard's confirmation to update rather than create.
-- **Deleting asks first**, and cancelling comes back to the card rather than to a dead end.
-- **`/today`** lists the deliveries addressed to the user inside their own local day, marked done, skipped, missed or still waiting.
+## What §22 fixes
 
-## The bug the slice had to fix
-
-The planner only materialises `active` reminders, so pausing stopped the planner. It did not stop the queue: occurrences already materialised stayed `pending`, and the dispatcher went on sending them. A pause that still delivers is not a pause.
-
-Leaving `active`, and any schedule edit, now takes back the `pending` occurrences nothing has gone out for, clears `planned_until` and gives back the `fired_count` those rows had spent. Already `sent` occurrences are left alone: their buttons are live on somebody's screen, and neither a pause nor an edit has the right to take them away. A `snoozed` delivery is left alone for the same reason — the user asked for it later.
+- **An invitation is a row, not a signature.** A token derived from the reminder id with a secret can be neither revoked nor expired: a link that reaches a group chat once keeps working forever. `reminder_invites` carries `expires_at` and `revoked_at`, and a partial unique index keeps exactly one live invitation per reminder, so revoking actually revokes.
+- **`ShareCb`** (prefix `i`) is the access screen's own factory: open, invite, revoke, accept, decline, leave, confirm_leave. It carries the reminder id and not the token, because by the time any of those is pressed the recipient row already exists.
+- **Acceptance goes through a recipient row**, `role = 'watcher'` with `accepted_at IS NULL`, which is exactly what the schema of §4.2 already describes. A row rather than FSM state, because the invitee usually meets the bot for the first time: onboarding has to ask for a timezone first, and the invitation has to survive it.
+- **Accepting and unsubscribing correct the queue.** The planner creates deliveries at materialisation, so a watcher who accepts later would receive nothing already materialised, and one who leaves would keep receiving what is already queued. Accepting backfills deliveries for `pending` occurrences still ahead; leaving takes back the `pending` deliveries of that user. `sent` is left alone for the same reason a pause leaves it alone (§21.3).
+- **A watcher cap.** Every acceptance multiplies deliveries per occurrence, so a link leaked into a public chat would turn one reminder into a broadcast.
+- **`BOT_USERNAME` in the configuration.** `getMe` is a network call and `USE_FAKE_BOT` has no network, so the link is built from configuration or not at all.
 
 ## Contracts and types
 
-No schema change, no migration. Everything the slice needs was fixed in the v8 contract PR; the only core file touched here is `texts.py`, for the string that says why a note was refused.
+`tech.md` §22 (v9). New table `reminder_invites` with migration `9c1f4b7ae520`, and the model `ReminderInvite`.
 
-New: `app/services/today.py` (`TodayService`, `TodayEntry`), `app/bot/fsm/reminder_edit.py`, `app/bot/render/today.py`, `app/bot/handlers/manage.py`. `domain/reminders.py` gains `parse_user_snooze`, `parse_user_repeat` and `local_day_bounds`. `RemindersService` gains `get_editable`, `update` and the queue rollback; the repositories gain `delete_unsent`, `reset_planning` and the two day queries.
+`domain/contracts.py` gains `INVITE_TOKEN_BYTES`, `INVITE_TOKEN_LENGTH`, `INVITE_TTL_HOURS`, `REMINDER_WATCHERS_MAX`, `DEEP_LINK_MAX_LENGTH`. `domain/errors.py` gains `InviteExpiredError` and `RecipientLimitError`; an unknown token stays a `NotFoundError` and one's own invitation a `PermissionDeniedError`, because neither needs a second name.
+
+`callbacks.py` gains `ShareCb` and the `shared` value of `PageCb.scope`. `confirm_kb` takes a fourth action, `leave`. `keyboards/share.py` holds the four access screens; `reminder_card_kb` gains the Access button. `texts.py` gains the `share.*` and `btn.*` keys, and `reminder.card` gains a third placeholder, `{shared}` — the card is the one screen where a reminder's state is read, and a reminder that goes out to three more people has to say so. `render_reminder_card` takes `watchers: int = 0`, so no existing call changes.
 
 ## Tests
 
-- **Contract** — `tests/contract/test_manage_contract.py`: every screen passes `FakeBotGateway`, the new atoms round-trip inside 64 bytes, no preset collides with `man`/`off`/`clear`, no preset falls outside the domain limits, the arrows carry the filter, the card offers exactly one of pause and resume, the edit menu and the contract list the same fields, and every schedule kind and every delivery status has a string to render with.
-- **Idempotency** — pausing twice takes the same rows back once and leaves `fired_count` where the first press left it; confirming a delete twice removes one reminder and answers the second press with "not found".
-- **Error path** — `message is not modified` on a redraw is the expected outcome; `TelegramRetryAfter` and `TelegramForbiddenError` on the redraw leave the committed change in place and do not let the press be replayed into a second effect.
-- **Property-based** — `local_day_bounds` over the DST zone set of §19.6: half-open, UTC-aware, both ends inside the day they name, 23 to 25 hours long, consecutive days meeting without a gap, and every real transition day covering its own midnight. Plus the bounds of the two new parsers, including that `0` is not a way to turn the repeat off.
-- **Integration** — `tests/integration/test_manage.py`: what the pause takes back and what it must not, the schedule swap, the refused schedule leaving the row alone, the untouched timezone snapshot, the category gates, and `/today` answering in the asker's timezone.
-- **End to end** — `tests/e2e/test_manage_slice.py`: create, list, filter, open, pause, resume, edit each field, re-ask the schedule through the wizard, delete with confirmation, and read the day.
+Contract only, as core PRs are: the new factory round-trips inside 64 bytes and the frozen prefix list gains `i`. The slice PR brings the rest.
 
-`make lint`, `make typecheck` and `make test` are green: 1425 passed, coverage 97%.
+`ruff check`, `ruff format --check`, `mypy app` and `pytest` are green: 1526 passed.
