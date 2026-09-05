@@ -70,6 +70,18 @@ class JobId(StrEnum):
     DISPATCHER_DELIVER = "dispatcher.deliver"
     REAPER_SWEEP = "reaper.sweep"
     DIGEST_SEND = "digest.send"
+    OPS_MONITOR = "ops.monitor"
+
+
+class HealthStatus(StrEnum):
+    """What the worker's healthcheck answers (tech.md 24.1).
+
+    Two states, because the reader is a docker healthcheck with two outcomes:
+    an intermediate warning would have nowhere to go.
+    """
+
+    OK = "ok"
+    STALE = "stale"
 
 
 class ErrorClass(StrEnum):
