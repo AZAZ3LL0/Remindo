@@ -5,7 +5,7 @@ from typing import Final
 
 from aiogram import Dispatcher
 
-from app.bot.commands import menu_for
+from app.bot.commands import COMMANDS, menu_for
 from app.bot.fsm.storage import SQLAlchemyStorage
 from app.bot.handlers import (
     categories,
@@ -86,11 +86,15 @@ async def publish_commands(context: AppContext) -> None:
     command caption failed to update is worse than one with a stale caption
     (tech.md 25.3).
     """
+    published = 0
     for lang in SUPPORTED_LANGS:
         try:
             await context.gateway.set_commands(menu_for(lang), lang)
         except Exception as error:
             _log.error("bot.commands_failed", lang=lang, error=type(error).__name__)
+            continue
+        published += 1
+    _log.info("bot.commands_published", languages=published, commands=len(COMMANDS))
 
 
 async def run() -> None:
