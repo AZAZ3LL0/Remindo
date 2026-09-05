@@ -12,10 +12,14 @@ from zoneinfo import ZoneInfo
 from app.domain.contracts import (
     REMINDER_NOTE_MAX_LENGTH,
     REMINDER_TITLE_MAX_LENGTH,
+    REPEAT_MAX_MINUTES,
+    REPEAT_MIN_MINUTES,
+    SNOOZE_MAX_MINUTES,
+    SNOOZE_MIN_MINUTES,
     WIZARD_MAX_DAYS_AHEAD,
 )
 from app.domain.errors import ValidationError
-from app.domain.recurrence import next_occurrences
+from app.domain.recurrence import next_occurrences, to_utc
 from app.domain.schedules import (
     INTERVAL_MAX_MINUTES,
     INTERVAL_MIN_MINUTES,
@@ -168,6 +172,34 @@ def parse_user_window(raw: str) -> tuple[time, time]:
         raise ValidationError(f"unclear window: {raw!r}") from exc
 
 
+def parse_user_snooze(raw: str) -> int:
+    """A hand-typed snooze step in minutes, inside the limits of tech.md 21.5."""
+    return _minutes(raw, SNOOZE_MIN_MINUTES, SNOOZE_MAX_MINUTES, "snooze")
+
+
+def parse_user_repeat(raw: str) -> int:
+    """A hand-typed repeat delay in minutes, inside the limits of tech.md 21.5.
+
+    Turning the repeat off is a separate button, not an out-of-range number:
+    zero minutes and "no repeat" are different answers, and reading one as the
+    other would silently disable a reminder the user meant to speed up.
+    """
+    return _minutes(raw, REPEAT_MIN_MINUTES, REPEAT_MAX_MINUTES, "repeat")
+
+
+def local_day_bounds(day: date, tz: ZoneInfo) -> tuple[datetime, datetime]:
+    """The calendar day as the half-open UTC interval `[start, next start)`.
+
+    Both ends go through the same resolver the schedules use, so a nonexistent
+    midnight moves forward and an ambiguous one takes the earlier offset
+    (tech.md 5.1). A local day is therefore not always twenty-four hours long,
+    and `/today` has to survive that (tech.md 21.8).
+    """
+    start = to_utc(datetime.combine(day, time.min), tz)
+    end = to_utc(datetime.combine(day + timedelta(days=1), time.min), tz)
+    return start, end
+
+
 def first_fire_at(
     schedule: Schedule,
     tz: ZoneInfo,
@@ -188,6 +220,17 @@ def first_fire_at(
         limit=1,
     )
     return moments[0] if moments else None
+
+
+def _minutes(raw: str, low: int, high: int, what: str) -> int:
+    """A hand-typed count of minutes inside a closed range, or `ValidationError`."""
+    try:
+        minutes = int(raw.strip())
+    except ValueError as exc:
+        raise ValidationError(f"unclear {what}: {raw!r}") from exc
+    if not low <= minutes <= high:
+        raise ValidationError(f"{what} must be {low}..{high} minutes")
+    return minutes
 
 
 def _times(values: Sequence[time]) -> list[time]:

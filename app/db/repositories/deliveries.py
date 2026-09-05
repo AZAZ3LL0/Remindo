@@ -125,6 +125,38 @@ class DeliveriesRepository:
             stmt = stmt.where(Reminder.category_id == category_id)
         return (await self._session.execute(stmt)).scalars().all()
 
+    def _day_query(self, user_id: int, start: datetime, end: datetime) -> sa.Select[Any]:
+        """Deliveries addressed to one user inside one local day (tech.md 21.9)."""
+        return (
+            sa.select(Delivery, Occurrence, Reminder, Category)
+            .join(Occurrence, Occurrence.id == Delivery.occurrence_id)
+            .join(Reminder, Reminder.id == Occurrence.reminder_id)
+            .join(Category, Category.id == Reminder.category_id)
+            .where(
+                Delivery.user_id == user_id,
+                Occurrence.fire_at >= start,
+                Occurrence.fire_at < end,
+            )
+        )
+
+    async def list_for_day(
+        self, user_id: int, start: datetime, end: datetime, limit: int, offset: int
+    ) -> Sequence[tuple[Delivery, Occurrence, Reminder, Category]]:
+        stmt = (
+            self._day_query(user_id, start, end)
+            .order_by(Occurrence.fire_at, Delivery.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return [(row[0], row[1], row[2], row[3]) for row in rows]
+
+    async def count_for_day(self, user_id: int, start: datetime, end: datetime) -> int:
+        stmt = sa.select(sa.func.count()).select_from(
+            self._day_query(user_id, start, end).subquery()
+        )
+        return int((await self._session.execute(stmt)).scalar_one())
+
     async def list_sent_for_occurrence(self, occurrence_id: int) -> Sequence[Delivery]:
         stmt = sa.select(Delivery).where(
             Delivery.occurrence_id == occurrence_id,

@@ -6,12 +6,20 @@ reminder is only created when something is actually going to fire.
 """
 
 from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from hypothesis import assume, given
 from hypothesis import strategies as st
 
-from app.domain.contracts import REMINDER_TITLE_MAX_LENGTH, WIZARD_MAX_DAYS_AHEAD
+from app.domain.contracts import (
+    REMINDER_TITLE_MAX_LENGTH,
+    REPEAT_MAX_MINUTES,
+    REPEAT_MIN_MINUTES,
+    SNOOZE_MAX_MINUTES,
+    SNOOZE_MIN_MINUTES,
+    WIZARD_MAX_DAYS_AHEAD,
+)
 from app.domain.errors import ValidationError
 from app.domain.recurrence import next_occurrences, to_utc
 from app.domain.reminders import (
@@ -22,11 +30,14 @@ from app.domain.reminders import (
     build_once_schedule,
     build_weekly_schedule,
     first_fire_at,
+    local_day_bounds,
     local_today,
     normalize_note,
     normalize_reminder_title,
     parse_user_date,
     parse_user_interval,
+    parse_user_repeat,
+    parse_user_snooze,
     parse_user_window,
 )
 from app.domain.schedules import (
@@ -37,7 +48,9 @@ from app.domain.schedules import (
     format_hhmm,
     format_local_date,
 )
+from tests.unit.dst import transitions
 from tests.unit.strategies import (
+    DST_TIMEZONE_NAMES,
     local_dates,
     local_times,
     reminder_titles,
@@ -386,3 +399,97 @@ class TestScheduleReachesTheSameFirstMoment:
 
         assert moment is not None
         assert time(9, 0) <= moment.astimezone(tz).time() <= time(21, 0)
+
+
+class TestSnoozeAndRepeat:
+    """Acceptance criteria of tech.md 15 (S9): the step and the automatic
+    repeat are minutes the schema can hold and the reaper can act on."""
+
+    @given(st.integers(min_value=SNOOZE_MIN_MINUTES, max_value=SNOOZE_MAX_MINUTES))
+    def test_a_step_inside_the_limits_survives_the_round_trip(self, minutes):
+        assert parse_user_snooze(str(minutes)) == minutes
+        assert parse_user_snooze(f"  {minutes} ") == minutes
+
+    @given(st.integers(min_value=REPEAT_MIN_MINUTES, max_value=REPEAT_MAX_MINUTES))
+    def test_a_repeat_inside_the_limits_survives_the_round_trip(self, minutes):
+        assert parse_user_repeat(str(minutes)) == minutes
+
+    @given(st.integers())
+    def test_a_number_outside_the_limits_is_refused(self, minutes):
+        assume(not SNOOZE_MIN_MINUTES <= minutes <= SNOOZE_MAX_MINUTES)
+
+        with pytest.raises(ValidationError):
+            parse_user_snooze(str(minutes))
+
+    @given(st.integers())
+    def test_a_repeat_outside_the_limits_is_refused(self, minutes):
+        assume(not REPEAT_MIN_MINUTES <= minutes <= REPEAT_MAX_MINUTES)
+
+        with pytest.raises(ValidationError):
+            parse_user_repeat(str(minutes))
+
+    def test_zero_is_not_a_way_to_turn_the_repeat_off(self):
+        """Turning it off is a button. Read as zero it would disable a reminder
+        the user meant to speed up (tech.md 21.5)."""
+        with pytest.raises(ValidationError):
+            parse_user_repeat("0")
+
+    @given(st.text(max_size=8))
+    def test_anything_that_is_not_a_number_is_refused(self, raw):
+        assume(not raw.strip().lstrip("+-").isdigit())
+
+        with pytest.raises(ValidationError):
+            parse_user_snooze(raw)
+        with pytest.raises(ValidationError):
+            parse_user_repeat(raw)
+
+
+class TestLocalDayBounds:
+    """Acceptance criteria of tech.md 15 (S9): `/today` shows the user's day,
+    and a day is not always twenty-four hours long."""
+
+    @given(day=local_dates, tz=timezones)
+    def test_the_day_is_a_half_open_utc_interval(self, day, tz):
+        start, end = local_day_bounds(day, tz)
+
+        assert start.tzinfo is UTC and end.tzinfo is UTC
+        assert start < end
+
+    @given(day=local_dates, tz=timezones)
+    def test_both_ends_belong_to_the_days_they_name(self, day, tz):
+        start, end = local_day_bounds(day, tz)
+
+        assert local_today(start, tz) == day
+        assert local_today(end - timedelta(minutes=1), tz) == day
+
+    @given(day=local_dates, tz=timezones)
+    def test_a_day_lasts_between_23_and_25_hours(self, day, tz):
+        """A DST day is short or long, never absurd. A bound outside this range
+        means the resolver picked a moment in the wrong day."""
+        start, end = local_day_bounds(day, tz)
+
+        assert timedelta(hours=23) <= end - start <= timedelta(hours=25)
+
+    @given(day=local_dates, tz=timezones)
+    def test_consecutive_days_meet_without_a_gap(self, day, tz):
+        """A gap would hide deliveries from `/today` on both sides of it
+        (tech.md 21.8)."""
+        _, end = local_day_bounds(day, tz)
+        next_start, _ = local_day_bounds(day + timedelta(days=1), tz)
+
+        assert end == next_start
+
+    @given(day=local_dates, tz=timezones)
+    def test_the_bounds_are_deterministic(self, day, tz):
+        assert local_day_bounds(day, tz) == local_day_bounds(day, tz)
+
+    @pytest.mark.parametrize("name", DST_TIMEZONE_NAMES)
+    def test_a_transition_day_still_covers_its_own_midnight(self, name):
+        """The days the clocks move are the days worth checking."""
+        tz = ZoneInfo(name)
+        for moment in transitions(tz):
+            day = moment.astimezone(tz).date()
+            start, end = local_day_bounds(day, tz)
+
+            assert start <= moment < end
+            assert local_today(start, tz) == day

@@ -8,7 +8,11 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Delivery, Occurrence
-from app.domain.contracts import TERMINAL_DELIVERY_STATUSES, OccurrenceStatus
+from app.domain.contracts import (
+    TERMINAL_DELIVERY_STATUSES,
+    DeliveryStatus,
+    OccurrenceStatus,
+)
 
 
 class OccurrencesRepository:
@@ -44,6 +48,36 @@ class OccurrencesRepository:
             Occurrence.scheduled_for.in_(scheduled_for),
         )
         return (await self._session.execute(stmt)).scalars().all()
+
+    async def delete_unsent(self, reminder_id: int) -> int:
+        """Drop queued occurrences nothing has gone out for (tech.md 21.3).
+
+        Rows are deleted rather than marked: no delivery happened, so the log
+        has nothing to keep, and `skipped` is a reaction of the user's and would
+        show up in the statistics as one. Deliveries follow by cascade.
+
+        An occurrence any delivery has left `pending` for is kept: somebody is
+        looking at a message with live buttons, and a pause has no business
+        taking those away.
+        """
+        answered = (
+            sa.select(Delivery.id)
+            .where(
+                Delivery.occurrence_id == Occurrence.id,
+                Delivery.status != DeliveryStatus.PENDING,
+            )
+            .exists()
+        )
+        stmt = (
+            sa.delete(Occurrence)
+            .where(
+                Occurrence.reminder_id == reminder_id,
+                Occurrence.status == OccurrenceStatus.PENDING,
+                ~answered,
+            )
+            .returning(Occurrence.id)
+        )
+        return len((await self._session.execute(stmt)).scalars().all())
 
     async def next_fire_at(self, reminder_id: int, after: datetime) -> datetime | None:
         stmt = (

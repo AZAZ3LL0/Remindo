@@ -20,6 +20,7 @@ from app.bot.callbacks import CatCb, WizCb, unpack_wall_time, unpack_window
 from app.bot.fsm.reminder_wizard import ReminderWizard
 from app.bot.keyboards.confirm import confirm_kb
 from app.bot.keyboards.pickers import category_picker_kb
+from app.bot.keyboards.reminders import reminder_card_kb
 from app.bot.keyboards.wizard import (
     MISSING_DAY_ATOMS,
     daily_times_kb,
@@ -91,6 +92,11 @@ MONTH_DAYS_KEY = "month_days"
 ON_MISSING_KEY = "on_missing"
 SCHEDULE_KEY = "schedule"
 EVERY_MINUTES_KEY = "every_minutes"
+
+#: Set when the wizard is re-asking the schedule of an existing reminder
+#: (tech.md 21.2). Its presence is what tells the confirmation to update rather
+#: than to create, so the branches meet in one place instead of two.
+EDIT_ID_KEY = "edit_reminder_id"
 
 Screen = tuple[str, InlineKeyboardMarkup | None]
 
@@ -466,14 +472,20 @@ async def handle_confirm(
 ) -> None:
     data = await state.get_data()
     service = RemindersService(session, clock)
+    editing = data.get(EDIT_ID_KEY)
     try:
-        reminder = await service.create(
-            owner_id=user.id,
-            category_id=data[CATEGORY_ID_KEY],
-            title=data[TITLE_KEY],
-            schedule=parse_schedule(data[SCHEDULE_KEY]),
-            timezone=user.timezone,
-        )
+        if editing is None:
+            reminder = await service.create(
+                owner_id=user.id,
+                category_id=data[CATEGORY_ID_KEY],
+                title=data[TITLE_KEY],
+                schedule=parse_schedule(data[SCHEDULE_KEY]),
+                timezone=user.timezone,
+            )
+        else:
+            reminder = await service.update(
+                user.id, int(editing), schedule=parse_schedule(data[SCHEDULE_KEY])
+            )
     except ScheduleExhaustedError:
         # Time passed between the confirmation screen and the press.
         await query.answer(T("wizard.past_moment", user.language), show_alert=True)
@@ -483,7 +495,7 @@ async def handle_confirm(
     # leave a finished wizard able to create a second reminder.
     await state.clear()
     category = await CategoriesRepository(session).get_by_id(reminder.category_id)
-    await query.answer(T("wizard.created", user.language))
+    await query.answer(T("wizard.created" if editing is None else "edit.saved", user.language))
     if category is not None:
         await _show(
             query,
@@ -494,7 +506,13 @@ async def handle_confirm(
                 ZoneInfo(user.timezone),
                 user.language,
             ),
-            None,
+            # A brand new reminder has nowhere to go back to; one that was just
+            # edited came from its card, so the card comes back with it.
+            None
+            if editing is None
+            else reminder_card_kb(
+                reminder.id, reminder.status, reminder.category_id, user.language
+            ),
         )
 
 
