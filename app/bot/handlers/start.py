@@ -11,6 +11,7 @@ from app.bot.fsm.onboarding import Onboarding
 from app.bot.handlers.settings import settings_screen
 from app.bot.handlers.share import follow_invite, pending_invite_screen
 from app.bot.keyboards.settings import timezone_picker_kb
+from app.bot.render.help import render_help
 from app.bot.render.texts import T
 from app.core.clock import Clock
 from app.db.models import User
@@ -112,8 +113,12 @@ async def _finish_onboarding(
     """Confirm the timezone, then answer the question the user came with.
 
     An invitee usually meets the bot through a deep link, so the invitation
-    waiting in the database is shown here rather than the settings screen
-    (tech.md 22.5).
+    waiting in the database is shown here rather than the help screen
+    (tech.md 22.5): they came for one reminder, not for a table of contents.
+
+    Everyone else lands on the help screen rather than on settings (tech.md
+    25.5): somebody who has just named their timezone has finished with
+    settings and has not yet seen the product.
     """
     await message.answer(T("start.timezone_saved", user.language, timezone=user.timezone))
     screen = await pending_invite_screen(user, session, clock)
@@ -121,8 +126,7 @@ async def _finish_onboarding(
         text, keyboard = screen
         await message.answer(text, reply_markup=keyboard)
         return
-    text, keyboard = settings_screen(user)
-    await message.answer(text, reply_markup=keyboard)
+    await message.answer(render_help(user.language))
 
 
 async def _reply(query: CallbackQuery, text: str) -> None:

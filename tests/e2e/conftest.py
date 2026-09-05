@@ -9,17 +9,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import CallbackQuery, Chat, Message, Update
 from aiogram.types import User as TgUser
 
-from app.bot.handlers import categories as categories_handlers
-from app.bot.handlers import errors as errors_handlers
-from app.bot.handlers import lists as lists_handlers
-from app.bot.handlers import manage as manage_handlers
-from app.bot.handlers import reactions as reactions_handlers
-from app.bot.handlers import reminders as reminders_handlers
-from app.bot.handlers import settings as settings_handlers
-from app.bot.handlers import share as share_handlers
-from app.bot.handlers import start as start_handlers
-from app.bot.handlers import stats as stats_handlers
-from app.bot.main import build_dispatcher
+from app.bot.main import HANDLER_MODULES, build_dispatcher
 from app.core.config import Settings
 from app.core.di import AppContext
 from app.db.session import create_session_factory
@@ -36,19 +26,6 @@ FRIEND_TG_USER_ID = 770_000_002
 
 FRIEND_TG_USER = TgUser(id=FRIEND_TG_USER_ID, is_bot=False, first_name="Марат", username="marat")
 FRIEND_CHAT = Chat(id=FRIEND_TG_USER_ID, type="private")
-
-HANDLER_MODULES = (
-    start_handlers,
-    settings_handlers,
-    categories_handlers,
-    reminders_handlers,
-    manage_handlers,
-    share_handlers,
-    reactions_handlers,
-    lists_handlers,
-    stats_handlers,
-    errors_handlers,
-)
 
 
 #: Everything the end-to-end run touches. The bot and the worker use separate
