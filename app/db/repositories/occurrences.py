@@ -79,6 +79,25 @@ class OccurrencesRepository:
         )
         return len((await self._session.execute(stmt)).scalars().all())
 
+    async def list_upcoming(self, reminder_id: int, after: datetime) -> Sequence[Occurrence]:
+        """Queued occurrences still ahead, for a recipient who just joined.
+
+        The boundary is `fire_at > now` and not "every pending row": an
+        occurrence whose moment has passed is already with the dispatcher, and
+        a watcher who accepted a minute ago would be told about something that
+        was due before they arrived (tech.md 22.6).
+        """
+        stmt = (
+            sa.select(Occurrence)
+            .where(
+                Occurrence.reminder_id == reminder_id,
+                Occurrence.status == OccurrenceStatus.PENDING,
+                Occurrence.fire_at > after,
+            )
+            .order_by(Occurrence.fire_at)
+        )
+        return (await self._session.execute(stmt)).scalars().all()
+
     async def next_fire_at(self, reminder_id: int, after: datetime) -> datetime | None:
         stmt = (
             sa.select(Occurrence.fire_at)

@@ -46,6 +46,7 @@ from app.domain.errors import ValidationError
 from app.domain.reminders import parse_user_repeat, parse_user_snooze
 from app.services.categories import CategoriesService
 from app.services.reminders import RemindersService
+from app.services.sharing import SharingService
 
 router = Router(name="manage")
 
@@ -341,6 +342,9 @@ async def card_screen(user: User, session: AsyncSession, clock: Clock, reminder_
             await _next_fire(reminder, session, clock),
             ZoneInfo(user.timezone),
             user.language,
+            # A reminder that also goes out to other people says so here: the
+            # card is where the owner reads its state (tech.md 22.8).
+            watchers=await SharingService(session, clock).count_watchers(reminder.id),
         ),
         reminder_card_kb(reminder.id, reminder.status, reminder.category_id, user.language),
     )

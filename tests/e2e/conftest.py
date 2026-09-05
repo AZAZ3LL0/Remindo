@@ -16,6 +16,7 @@ from app.bot.handlers import manage as manage_handlers
 from app.bot.handlers import reactions as reactions_handlers
 from app.bot.handlers import reminders as reminders_handlers
 from app.bot.handlers import settings as settings_handlers
+from app.bot.handlers import share as share_handlers
 from app.bot.handlers import start as start_handlers
 from app.bot.handlers import stats as stats_handlers
 from app.bot.main import build_dispatcher
@@ -30,12 +31,19 @@ CHAT_ID = 770_000_001
 TG_USER = TgUser(id=TG_USER_ID, is_bot=False, first_name="Самат")
 CHAT = Chat(id=CHAT_ID, type="private")
 
+#: A second person, so a shared reminder can actually be shared (tech.md 22).
+FRIEND_TG_USER_ID = 770_000_002
+
+FRIEND_TG_USER = TgUser(id=FRIEND_TG_USER_ID, is_bot=False, first_name="Марат", username="marat")
+FRIEND_CHAT = Chat(id=FRIEND_TG_USER_ID, type="private")
+
 HANDLER_MODULES = (
     start_handlers,
     settings_handlers,
     categories_handlers,
     reminders_handlers,
     manage_handlers,
+    share_handlers,
     reactions_handlers,
     lists_handlers,
     stats_handlers,
@@ -51,6 +59,7 @@ E2E_TABLES = (
     "deliveries",
     "occurrences",
     "reminder_recipients",
+    "reminder_invites",
     "reminders",
     "categories",
     "users",
@@ -122,6 +131,21 @@ class Feeder:
         self._clock = clock
         self._update_id = 0
         self._message_id = 5000
+        self._user = TG_USER
+        self._chat = CHAT
+
+    def as_friend(self) -> "Feeder":
+        """The same feeder speaking for the second person.
+
+        A shared reminder needs two people, and they share the update counter
+        so their updates keep arriving in the order the test wrote them.
+        """
+        other = Feeder(self._dispatcher, self._bot, self._clock)
+        other._user = FRIEND_TG_USER
+        other._chat = FRIEND_CHAT
+        other._update_id = self._update_id
+        other._message_id = self._message_id + 1000
+        return other
 
     async def message(self, text: str) -> None:
         self._advance()
@@ -131,8 +155,8 @@ class Feeder:
             message=Message(
                 message_id=self._message_id,
                 date=datetime.now(UTC),
-                chat=CHAT,
-                from_user=TG_USER,
+                chat=self._chat,
+                from_user=self._user,
                 text=text,
             ),
         )
@@ -145,14 +169,14 @@ class Feeder:
             update_id=self._next_id(),
             callback_query=CallbackQuery(
                 id=str(self._update_id),
-                from_user=TG_USER,
+                from_user=self._user,
                 chat_instance="test",
                 data=data,
                 message=Message(
                     message_id=self._message_id,
                     date=datetime.now(UTC),
-                    chat=CHAT,
-                    from_user=TG_USER,
+                    chat=self._chat,
+                    from_user=self._user,
                     text="напоминание",
                 ),
             ),
@@ -170,3 +194,8 @@ class Feeder:
 @pytest.fixture
 def feed(dispatcher, context, fake_clock) -> Feeder:
     return Feeder(dispatcher, context.bot, fake_clock)
+
+
+@pytest.fixture
+def friend(feed) -> Feeder:
+    return feed.as_friend()
