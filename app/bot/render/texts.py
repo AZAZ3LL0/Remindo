@@ -38,8 +38,20 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
         "en": "Welcome back, {name}. Here are your current settings.",
     },
     "settings.title": {
-        "ru": "Настройки\nТаймзона: {timezone}\nЯзык: {language}\nТихие часы: {quiet}",
-        "en": "Settings\nTimezone: {timezone}\nLanguage: {language}\nQuiet hours: {quiet}",
+        "ru": (
+            "Настройки\nТаймзона: {timezone}\nЯзык: {language}\n"
+            "Тихие часы: {quiet}\nНедельный дайджест: {digest}"
+        ),
+        "en": (
+            "Settings\nTimezone: {timezone}\nLanguage: {language}\n"
+            "Quiet hours: {quiet}\nWeekly digest: {digest}"
+        ),
+    },
+    "settings.digest_on": {"ru": "включён", "en": "on"},
+    "settings.digest_off": {"ru": "выключен", "en": "off"},
+    "settings.digest_saved": {
+        "ru": "Недельный дайджест: {state}.",
+        "en": "Weekly digest: {state}.",
     },
     "settings.quiet_off": {"ru": "выключены", "en": "off"},
     "settings.quiet_value": {"ru": "{start}-{end}", "en": "{start}-{end}"},
@@ -460,6 +472,30 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
             "30 days: {rate30}% ({done30} of {total30})"
         ),
     },
+    "stats.window": {"ru": "за {days} дн.", "en": "over {days} d"},
+    "stats.overall": {"ru": "Все категории", "en": "All categories"},
+    "stats.by_category": {"ru": "По категориям\n{items}", "en": "By category\n{items}"},
+    "stats.category_item": {
+        "ru": "{emoji} {title} — серия {streak} дн., 7 дней {rate7}%",
+        "en": "{emoji} {title} — streak {streak} d, 7 days {rate7}%",
+    },
+    "stats.category_none": {
+        "ru": "Реакций пока нет, поэтому и разбивки нет.",
+        "en": "No reactions yet, so there is no breakdown either.",
+    },
+    "stats.card": {"ru": "Статистика: {emoji} {title}", "en": "Statistics: {emoji} {title}"},
+    "digest.title": {
+        "ru": "Итоги недели {start} — {end}",
+        "en": "Your week: {start} to {end}",
+    },
+    "digest.body": {
+        "ru": "Выполнено {done} из {total} ({rate}%)\nСерия: {streak} дн.",
+        "en": "Done {done} of {total} ({rate}%)\nStreak: {streak} d",
+    },
+    "digest.category_item": {
+        "ru": "{emoji} {title} — {done} из {total}",
+        "en": "{emoji} {title} — {done} of {total}",
+    },
     "react.done": {"ru": "Готово", "en": "Done"},
     "react.snoozed": {"ru": "Отложено до {until}", "en": "Snoozed until {until}"},
     "react.skipped": {"ru": "Пропущено", "en": "Skipped"},
@@ -514,6 +550,9 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
     "btn.quiet": {"ru": "Тихие часы", "en": "Quiet hours"},
     "btn.quiet_set": {"ru": "Задать", "en": "Set"},
     "btn.quiet_off": {"ru": "Выключить", "en": "Turn off"},
+    "btn.digest_on": {"ru": "Включить дайджест", "en": "Turn the digest on"},
+    "btn.digest_off": {"ru": "Выключить дайджест", "en": "Turn the digest off"},
+    "btn.stats_all": {"ru": "‹ Ко всем категориям", "en": "‹ To all categories"},
     "status.active": {"ru": "активно", "en": "active"},
     "status.paused": {"ru": "на паузе", "en": "paused"},
     "status.archived": {"ru": "в архиве", "en": "archived"},
