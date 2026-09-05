@@ -1,8 +1,9 @@
 """Quiet hours never drop a delivery, they postpone it."""
 
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -111,3 +112,24 @@ def test_silence_that_was_never_configured_covers_nothing(moment, tz):
     assert quiet.is_on is False
     assert quiet.covers(moment) is False
     assert quiet.shift(moment) == moment
+
+
+def test_an_ambiguous_end_takes_the_offset_that_is_still_ahead():
+    """The silence ends once, after the repeated hour, not before the moment.
+
+    On the autumn transition 02:30 in Berlin happens twice. Taking the earlier
+    one would end the silence before the moment it was asked to postpone.
+    """
+    tz = ZoneInfo("Europe/Berlin")
+    moment = datetime(2026, 10, 25, 1, 0, tzinfo=UTC)  # 02:00 local, second pass
+    shifted = apply_quiet_hours(moment, tz, time(1, 0), time(2, 30))
+
+    assert shifted > moment
+    assert shifted.astimezone(tz).time() == time(2, 30)
+    assert shifted.astimezone(tz).utcoffset() == timedelta(hours=1)
+
+
+def test_a_naive_moment_is_refused():
+    """Every datetime in the product is aware; a naive one is a bug upstream."""
+    with pytest.raises(ValueError, match="timezone-aware"):
+        apply_quiet_hours(datetime(2026, 6, 1, 12, 0), ZoneInfo("UTC"), time(23, 0), time(7, 0))
