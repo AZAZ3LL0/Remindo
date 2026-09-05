@@ -10,6 +10,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Category, Delivery, DeliveryAction, Occurrence, Reminder, User
 from app.domain.contracts import ActionKind, DeliveryStatus
+from app.domain.ops import QueueSnapshot
+
+#: A message that reached Telegram, whatever the recipient did with it, and a
+#: message that never did (tech.md 24.2). Deliveries still queued are in
+#: neither: they say nothing about transport yet.
+_DELIVERED_STATUSES = (
+    DeliveryStatus.SENT,
+    DeliveryStatus.DONE,
+    DeliveryStatus.SKIPPED,
+    DeliveryStatus.SNOOZED,
+)
+_FAILED_STATUSES = (DeliveryStatus.FAILED, DeliveryStatus.BLOCKED)
 
 
 class DeliveriesRepository:
@@ -234,6 +246,41 @@ class DeliveriesRepository:
         )
         rows = (await self._session.execute(stmt)).all()
         return [(row[0], row[1], row[2], row[3]) for row in rows]
+
+    async def queue_snapshot(self, now: datetime, window: timedelta) -> QueueSnapshot:
+        """The three ops numbers of tech.md 24.2, read at a single moment.
+
+        One query, not three: three would each see a different `now`, and a
+        report whose lag and queue size disagree about the present is worse
+        than no report. The window rides on `occurrences.fire_at` rather than
+        on `deliveries.updated_at`, because `updated_at` is written by the
+        database's own clock while every other moment comes from `Clock`.
+        """
+        overdue = sa.and_(
+            Delivery.status.in_([DeliveryStatus.PENDING, DeliveryStatus.SNOOZED]),
+            Delivery.next_attempt_at <= now,
+        )
+        recent = sa.and_(Occurrence.fire_at > now - window, Occurrence.fire_at <= now)
+        stmt = (
+            sa.select(
+                sa.func.count().filter(overdue),
+                sa.func.min(Delivery.next_attempt_at).filter(overdue),
+                sa.func.count().filter(recent, Delivery.status.in_(_DELIVERED_STATUSES)),
+                sa.func.count().filter(recent, Delivery.status.in_(_FAILED_STATUSES)),
+            )
+            .select_from(Delivery)
+            .join(Occurrence, Occurrence.id == Delivery.occurrence_id)
+            # The predicate bounds the scan to rows one of the counters can
+            # use; without it every delivery ever made is read once a minute.
+            .where(sa.or_(overdue, recent))
+        )
+        due, oldest, delivered, failed = (await self._session.execute(stmt)).one()
+        return QueueSnapshot(
+            due_deliveries=int(due),
+            oldest_due_at=oldest,
+            delivered=int(delivered),
+            failed=int(failed),
+        )
 
     async def release_stale_locks(self, now: datetime) -> int:
         stmt = (
