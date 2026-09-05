@@ -20,3 +20,7 @@ htmlcov/
 
 # OS
 .DS_Store
+
+# Local database dumps (scripts/backup.sh)
+backups/*
+!backups/.gitkeep

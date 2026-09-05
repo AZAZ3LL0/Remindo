@@ -47,6 +47,15 @@ class Settings(BaseSettings):
     digest_hour: int = Field(default=9, ge=0, le=23)
     digest_batch_size: int = Field(default=100, ge=1)
 
+    #: Worker observability (tech.md 24.6). The port stays inside the compose
+    #: network: an open /metrics tells the queue size to whoever asks. The host
+    #: defaults to every interface because the docker healthcheck does not
+    #: arrive on the host loopback.
+    health_host: str = "0.0.0.0"
+    health_port: int = Field(default=8080, ge=1, le=65535)
+    alert_lag_minutes: int = Field(default=5, ge=1)
+    metrics_window_minutes: int = Field(default=15, ge=1)
+
     use_fake_bot: bool = False
     admin_user_ids: str = ""
 
