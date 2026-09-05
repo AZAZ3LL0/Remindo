@@ -113,9 +113,8 @@ class DigestService:
     async def _failed(self, user: User, moment: datetime, error: Exception) -> DigestResult:
         error_class = classify_error(error)
         if error_class not in _TERMINAL_ERRORS:
-            # Nothing is written, so the mark stays where it was and the next
-            # tick picks the same moment up again.
-            await self._session.rollback()
+            # The send is the only write attempted so far, so leaving the mark
+            # alone is all it takes: the next tick picks the same moment up.
             _log.warning("digest.deferred", user_id=user.id, error=type(error).__name__)
             return DigestResult(deferred=1)
 

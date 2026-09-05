@@ -7,7 +7,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from app.domain.contracts import ActionKind
-from app.domain.stats import ActionRecord, build_summary
+from app.domain.stats import ActionRecord, PeriodStats, build_summary
 from tests.unit.strategies import timezones
 
 NOW = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
@@ -20,6 +20,7 @@ records = st.lists(
             lambda minutes: NOW - timedelta(minutes=minutes)
         ),
         kind=st.sampled_from(list(ActionKind)),
+        category_id=st.integers(min_value=1, max_value=4),
     ),
     max_size=60,
 )
@@ -96,3 +97,67 @@ def test_empty_history_is_a_zero_summary():
     summary = build_summary([], ZoneInfo("UTC"), NOW)
     assert summary.current_streak == 0
     assert summary.last_30_days.rate == 0.0
+    assert summary.by_category == ()
+
+
+@CASES
+@given(history=records, tz=timezones)
+def test_the_breakdown_accounts_for_every_outcome(history, tz):
+    """Rule 4: each outcome belongs to exactly one category, so the parts add up."""
+    summary = build_summary(history, tz, NOW)
+    for window in ("last_7_days", "last_30_days"):
+        parts = [getattr(entry, window) for entry in summary.by_category]
+        whole = getattr(summary, window)
+        assert sum(part.total for part in parts) == whole.total
+        assert sum(part.completed for part in parts) == whole.completed
+
+
+@CASES
+@given(history=records, tz=timezones)
+def test_a_category_streak_never_beats_the_whole(history, tz):
+    """Rule 5: a day credited to a category is credited to the total as well."""
+    summary = build_summary(history, tz, NOW)
+    for entry in summary.by_category:
+        assert entry.current_streak <= summary.current_streak
+        assert entry.longest_streak <= summary.longest_streak
+        assert 0 <= entry.current_streak <= entry.longest_streak
+
+
+@CASES
+@given(history=records, tz=timezones)
+def test_the_breakdown_is_ordered_and_holds_only_categories_with_outcomes(history, tz):
+    summary = build_summary(history, tz, NOW)
+    ids = [entry.category_id for entry in summary.by_category]
+    assert ids == sorted(ids)
+    assert len(ids) == len(set(ids))
+
+    expected = {record.category_id for record in history if record.kind is not ActionKind.SNOOZE}
+    assert set(ids) == expected
+
+
+@CASES
+@given(history=records, tz=timezones, seed=st.integers(min_value=0, max_value=10_000))
+def test_the_breakdown_does_not_depend_on_journal_order(history, tz, seed):
+    shuffled = sorted(history, key=lambda record: (hash(record.happened_at) + seed) % 97)
+    assert (
+        build_summary(history, tz, NOW).by_category == build_summary(shuffled, tz, NOW).by_category
+    )
+
+
+def test_a_category_slice_matches_the_summary_of_that_category_alone():
+    """The breakdown is a filter, not a second way of counting."""
+    tz = ZoneInfo("Europe/Moscow")
+    history = [
+        ActionRecord(NOW - timedelta(days=1), ActionKind.DONE, 7),
+        ActionRecord(NOW - timedelta(days=2), ActionKind.SKIP, 7),
+        ActionRecord(NOW - timedelta(days=1), ActionKind.DONE, 9),
+    ]
+    whole = build_summary(history, tz, NOW)
+    alone = build_summary([r for r in history if r.category_id == 7], tz, NOW)
+    entry = next(item for item in whole.by_category if item.category_id == 7)
+
+    assert (entry.current_streak, entry.longest_streak) == (
+        alone.current_streak,
+        alone.longest_streak,
+    )
+    assert entry.last_7_days == alone.last_7_days == PeriodStats(completed=1, total=2)
