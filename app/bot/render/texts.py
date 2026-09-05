@@ -564,6 +564,39 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
         "ru": "Доставка догнала: лаг {lag} мин, в очереди {queue}, ошибок {errors}%.",
         "en": "Delivery caught up: lag {lag} min, {queue} queued, {errors}% failing.",
     },
+    # The help screen carries no placeholders: the command table is glued on
+    # from cmd.* rather than formatted in, so a ninth command edits one place
+    # instead of two (tech.md 25.6).
+    "help.screen": {
+        "ru": (
+            "Я напоминаю о делах и жду ответа.\n\n"
+            "Заводишь дело и расписание, я пишу в срок, а ты жмёшь "
+            "<b>Готово</b>, <b>Отложить</b> или <b>Пропустить</b>. "
+            "По этим нажатиям и считается статистика: серия дней подряд "
+            "и доля выполненного.\n\n"
+            "<b>Команды</b>"
+        ),
+        "en": (
+            "I remind you about things and wait for an answer.\n\n"
+            "You set up a thing and a schedule, I write when it is due, and you "
+            "press <b>Done</b>, <b>Snooze</b> or <b>Skip</b>. Those presses are "
+            "what the statistics are counted from: the streak of days in a row "
+            "and the share completed.\n\n"
+            "<b>Commands</b>"
+        ),
+    },
+    "help.unknown": {
+        "ru": "Не понял. Вот что я умею:",
+        "en": "I did not get that. Here is what I can do:",
+    },
+    "cmd.new": {"ru": "Новое напоминание", "en": "New reminder"},
+    "cmd.list": {"ru": "Мои напоминания", "en": "My reminders"},
+    "cmd.today": {"ru": "Что сегодня", "en": "What is due today"},
+    "cmd.categories": {"ru": "Категории", "en": "Categories"},
+    "cmd.stats": {"ru": "Статистика", "en": "Statistics"},
+    "cmd.shared": {"ru": "Общие напоминания", "en": "Shared reminders"},
+    "cmd.settings": {"ru": "Таймзона, язык, тихие часы", "en": "Timezone, language, quiet hours"},
+    "cmd.help": {"ru": "Что я умею", "en": "What I can do"},
     "error.generic": {
         "ru": "Что-то пошло не так. Попробуй ещё раз.",
         "en": "Something went wrong. Try again.",
