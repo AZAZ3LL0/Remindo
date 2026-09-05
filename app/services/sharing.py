@@ -118,7 +118,10 @@ class SharingService:
         ):
             raise InviteExpiredError("invitation is revoked or expired")
 
-        reminder = await self._reminders.get_by_id(invite.reminder_id)
+        # Locked, so counting the watchers and adding one is a single decision:
+        # two people following the same link at the limit would otherwise both
+        # find room (tech.md 22.4).
+        reminder = await self._reminders.get_for_update(invite.reminder_id)
         if reminder is None:
             raise NotFoundError("the reminder is gone")
 
@@ -137,7 +140,9 @@ class SharingService:
                     accepted_at=None,
                 )
             )
-            await self._session.commit()
+        # Committed even when nothing was added: the lock lives until the
+        # transaction ends, and holding it past the decision serialises nothing.
+        await self._session.commit()
 
         return reminder, await self._owner_of(reminder)
 

@@ -17,6 +17,12 @@ class RemindersRepository:
     async def get_by_id(self, reminder_id: int) -> Reminder | None:
         return await self._session.get(Reminder, reminder_id)
 
+    async def get_for_update(self, reminder_id: int) -> Reminder | None:
+        """Row lock for the joining path, so two people following the same link
+        at the watcher limit serialise instead of both fitting (tech.md 22.4)."""
+        stmt = sa.select(Reminder).where(Reminder.id == reminder_id).with_for_update()
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
     async def add(self, reminder: Reminder) -> Reminder:
         self._session.add(reminder)
         await self._session.flush()
