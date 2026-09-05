@@ -350,6 +350,10 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
         "ru": "Повтор должен быть числом минут от {minimum} до {maximum}.",
         "en": "The repeat must be a number of minutes between {minimum} and {maximum}.",
     },
+    "edit.note_invalid": {
+        "ru": "Заметка не длиннее {maximum} символов.",
+        "en": "A note is at most {maximum} characters.",
+    },
     "edit.repeat_off": {"ru": "Автоповтор выключен.", "en": "The automatic repeat is off."},
     "edit.cancelled": {"ru": "Изменения отменены.", "en": "Changes cancelled."},
     "today.title": {"ru": "Сегодня ({total})", "en": "Today ({total})"},
