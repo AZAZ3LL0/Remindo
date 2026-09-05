@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, time, timedelta
 from itertools import pairwise
+from zoneinfo import ZoneInfo
 
 import pytest
 import sqlalchemy as sa
@@ -153,6 +154,40 @@ async def test_quiet_hours_move_the_delivery_moment(
     assert occurrence is not None
     assert occurrence.fire_at > occurrence.scheduled_for
     assert occurrence.expires_at == occurrence.fire_at + timedelta(minutes=180)
+
+
+async def test_quiet_hours_are_read_from_the_owner_not_the_reminder_snapshot(
+    db_session, fake_clock, user_factory, reminder_factory
+):
+    """`reminders.timezone` is frozen at creation; the owner may have moved."""
+    moscow = ZoneInfo("Europe/Moscow")
+    owner = await user_factory(
+        timezone="Europe/Moscow", quiet_start=time(23, 0), quiet_end=time(7, 0)
+    )
+    # 09:00 in Vladivostok is 02:00 in Moscow: wide awake under the snapshot
+    # the reminder carries, silent under the clock the owner lives by.
+    reminder = await reminder_factory(
+        owner=owner,
+        schedule=DailySchedule(times=["09:00"]),
+        starts_at=FROZEN_NOW,
+        timezone="Asia/Vladivostok",
+    )
+
+    await build_service(db_session, fake_clock).materialize()
+
+    occurrence = (
+        (
+            await db_session.execute(
+                sa.select(Occurrence).where(Occurrence.reminder_id == reminder.id)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert occurrence is not None
+    # The schedule still expands against the snapshot; only the silence moved.
+    assert occurrence.scheduled_for.astimezone(ZoneInfo("Asia/Vladivostok")).time() == time(9, 0)
+    assert occurrence.fire_at.astimezone(moscow).time() == time(7, 0)
 
 
 async def test_one_shot_reminder_produces_a_single_occurrence(

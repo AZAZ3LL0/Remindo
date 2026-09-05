@@ -1,6 +1,7 @@
 """Reaction acceptance criteria (tech.md 7.4)."""
 
-from datetime import timedelta
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 import sqlalchemy as sa
@@ -195,3 +196,80 @@ async def test_a_closed_occurrence_refuses_a_late_reaction(db_session, fake_cloc
     assert (result.applied, result.reason) == (False, RejectReason.EXPIRED)
     assert (await reload(db_session, Occurrence, occurrence.id)).status is OccurrenceStatus.EXPIRED
     assert await count_actions(db_session, delivery.id) == 0
+
+
+async def test_a_snooze_lands_after_the_quiet_hours_rather_than_inside_them(
+    db_session, fake_clock, user_factory, reminder_factory, occurrence_factory, delivery_factory
+):
+    """Ten more minutes at 22:55 means the morning, not five past eleven."""
+    moscow = ZoneInfo("Europe/Moscow")
+    night = datetime(2026, 6, 1, 19, 55, tzinfo=UTC)  # 22:55 local
+    fake_clock.set(night)
+    owner = await user_factory(
+        timezone="Europe/Moscow", quiet_start=time(23, 0), quiet_end=time(7, 0)
+    )
+    reminder = await reminder_factory(owner=owner, snooze_minutes=15)
+    occurrence = await occurrence_factory(
+        reminder, fire_at=night - timedelta(minutes=5), expires_at=night + timedelta(hours=12)
+    )
+    delivery = await delivery_factory(
+        occurrence, user_id=owner.id, status=DeliveryStatus.SENT, sent_at=night
+    )
+    await db_session.commit()
+
+    result = await ReactionsService(db_session, fake_clock).react(delivery.id, owner.id, "snooze")
+
+    morning = datetime(2026, 6, 2, 7, 0, tzinfo=moscow)
+    assert result.snoozed_until.astimezone(moscow) == morning
+    stored = await reload(db_session, Delivery, delivery.id)
+    # The queue and the answer on screen name the same moment.
+    assert stored.next_attempt_at == stored.snoozed_until == result.snoozed_until
+
+
+async def test_a_snooze_is_never_postponed_past_the_moment_it_can_be_answered(
+    db_session, fake_clock, user_factory, reminder_factory, occurrence_factory, delivery_factory
+):
+    """Silence outlasting the TTL would turn "remind me later" into "never"."""
+    night = datetime(2026, 6, 1, 19, 55, tzinfo=UTC)  # 22:55 local
+    fake_clock.set(night)
+    owner = await user_factory(
+        timezone="Europe/Moscow", quiet_start=time(23, 0), quiet_end=time(7, 0)
+    )
+    reminder = await reminder_factory(owner=owner, snooze_minutes=15)
+    occurrence = await occurrence_factory(
+        reminder, fire_at=night - timedelta(minutes=5), expires_at=night + timedelta(hours=2)
+    )
+    delivery = await delivery_factory(
+        occurrence, user_id=owner.id, status=DeliveryStatus.SENT, sent_at=night
+    )
+    await db_session.commit()
+
+    result = await ReactionsService(db_session, fake_clock).react(delivery.id, owner.id, "snooze")
+
+    assert result.snoozed_until == night + timedelta(minutes=15)
+    assert result.snoozed_until < occurrence.expires_at
+
+
+async def test_quiet_hours_follow_the_user_not_the_reminder_snapshot(
+    db_session, fake_clock, user_factory, reminder_factory, occurrence_factory, delivery_factory
+):
+    """`reminders.timezone` is a snapshot; the user may have moved since."""
+    night = datetime(2026, 6, 1, 19, 55, tzinfo=UTC)  # 22:55 in Moscow
+    fake_clock.set(night)
+    owner = await user_factory(
+        timezone="Europe/Moscow", quiet_start=time(23, 0), quiet_end=time(7, 0)
+    )
+    reminder = await reminder_factory(owner=owner, snooze_minutes=15, timezone="Asia/Vladivostok")
+    occurrence = await occurrence_factory(
+        reminder, fire_at=night - timedelta(minutes=5), expires_at=night + timedelta(hours=12)
+    )
+    delivery = await delivery_factory(
+        occurrence, user_id=owner.id, status=DeliveryStatus.SENT, sent_at=night
+    )
+    await db_session.commit()
+
+    result = await ReactionsService(db_session, fake_clock).react(delivery.id, owner.id, "snooze")
+
+    assert result.snoozed_until.astimezone(ZoneInfo("Europe/Moscow")) == datetime(
+        2026, 6, 2, 7, 0, tzinfo=ZoneInfo("Europe/Moscow")
+    )

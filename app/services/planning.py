@@ -22,9 +22,10 @@ from app.domain.planning import (
     plan_window,
     settle_plan,
 )
-from app.domain.quiet_hours import apply_quiet_hours
+from app.domain.quiet_hours import QuietHours
 from app.domain.recurrence import next_occurrences
 from app.domain.schedules import Schedule, parse_schedule
+from app.services.recipients import quiet_hours_of
 
 _log = get_logger(__name__)
 
@@ -108,7 +109,7 @@ class PlanningService:
         moments = self._expand(schedule, tz, window)
 
         created_occurrences = await self._occurrences.insert_missing(
-            self._occurrence_rows(reminder, owner, tz, moments)
+            self._occurrence_rows(reminder, quiet_hours_of(owner), moments)
         )
         created_deliveries = await self._create_deliveries(reminder, moments)
 
@@ -139,12 +140,12 @@ class PlanningService:
         )
 
     def _occurrence_rows(
-        self, reminder: Reminder, owner: User, tz: ZoneInfo, moments: list[datetime]
+        self, reminder: Reminder, quiet: QuietHours, moments: list[datetime]
     ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for moment in moments:
             # Quiet hours belong to the owner: one occurrence, one fire_at.
-            fire_at = apply_quiet_hours(moment, tz, owner.quiet_start, owner.quiet_end)
+            fire_at = quiet.shift(moment)
             rows.append(
                 {
                     "reminder_id": reminder.id,

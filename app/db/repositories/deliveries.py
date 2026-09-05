@@ -134,12 +134,17 @@ class DeliveriesRepository:
 
     async def list_repeat_candidates(
         self, now: datetime, limit: int
-    ) -> Sequence[tuple[Delivery, Reminder, Occurrence]]:
-        """Sent deliveries with no reaction that are due for an automatic repeat."""
+    ) -> Sequence[tuple[Delivery, Reminder, Occurrence, User]]:
+        """Sent deliveries with no reaction that may be due for an automatic repeat.
+
+        The predicate narrows the batch; the repeat itself is decided in the
+        domain, which is why the recipient rides along: quiet hours are theirs.
+        """
         stmt = (
-            sa.select(Delivery, Reminder, Occurrence)
+            sa.select(Delivery, Reminder, Occurrence, User)
             .join(Occurrence, Occurrence.id == Delivery.occurrence_id)
             .join(Reminder, Reminder.id == Occurrence.reminder_id)
+            .join(User, User.id == Delivery.user_id)
             .where(
                 Delivery.status == DeliveryStatus.SENT,
                 Delivery.reacted_at.is_(None),
@@ -162,7 +167,7 @@ class DeliveriesRepository:
             .limit(limit)
         )
         rows = (await self._session.execute(stmt)).all()
-        return [(row[0], row[1], row[2]) for row in rows]
+        return [(row[0], row[1], row[2], row[3]) for row in rows]
 
     async def release_stale_locks(self, now: datetime) -> int:
         stmt = (

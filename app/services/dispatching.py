@@ -26,6 +26,7 @@ from app.domain.dispatching import (
     decide_failure,
     decide_success,
 )
+from app.domain.sweeping import decide_repeat, is_overdue
 from app.gateways.bot_gateway import (
     BotGateway,
     MessageRef,
@@ -33,6 +34,7 @@ from app.gateways.bot_gateway import (
     classify_error,
     retry_after_seconds,
 )
+from app.services.recipients import quiet_hours_of
 
 _log = get_logger(__name__)
 
@@ -213,7 +215,13 @@ class ReaperService:
         return result
 
     async def _expire_overdue(self, now: datetime) -> int:
-        overdue = await self._occurrences.list_expired(now, self._batch_size)
+        # The query narrows the batch; the rule itself is checked in the domain,
+        # so an occurrence somebody answered is never overwritten with silence.
+        overdue = [
+            occurrence
+            for occurrence in await self._occurrences.list_expired(now, self._batch_size)
+            if is_overdue(occurrence.status, occurrence.expires_at, now)
+        ]
         for occurrence in overdue:
             for delivery in await self._deliveries.list_sent_for_occurrence(occurrence.id):
                 await self._deliveries.add_action(
@@ -241,15 +249,39 @@ class ReaperService:
 
     async def _repeat_unanswered(self, now: datetime) -> int:
         candidates = await self._deliveries.list_repeat_candidates(now, self._batch_size)
-        for delivery, _reminder, occurrence in candidates:
+        # The budget is read once per sweep: a shared reminder hands the same
+        # occurrence back for every recipient, and bumping it in the loop would
+        # make the second recipient look like a second repeat.
+        budget = {occurrence.id: occurrence.repeats_sent for _, _, occurrence, _ in candidates}
+        repeated = 0
+        bumped: set[int] = set()
+        for delivery, reminder, occurrence, user in candidates:
+            plan = decide_repeat(
+                sent_at=delivery.sent_at,
+                repeat_after_minutes=reminder.repeat_after_minutes,
+                repeats_sent=budget[occurrence.id],
+                max_repeats=reminder.max_repeats,
+                expires_at=occurrence.expires_at,
+                quiet=quiet_hours_of(user),
+                now=now,
+            )
+            if plan is None:
+                continue
             await self._deliveries.update_fields(
                 delivery.id,
                 status=DeliveryStatus.PENDING,
-                next_attempt_at=now,
+                next_attempt_at=plan.next_attempt_at,
                 locked_until=None,
             )
-            await self._occurrences.bump_repeats(occurrence.id)
-        return len(candidates)
+            if occurrence.id not in bumped:
+                # One sweep costs one repeat however many recipients it reaches:
+                # the budget lives on the occurrence (tech.md 4.2), not on a
+                # delivery. It is spent when the repeat is queued, not when it
+                # lands, or one silent night would queue every repeat at once.
+                await self._occurrences.bump_repeats(occurrence.id)
+                bumped.add(occurrence.id)
+            repeated += 1
+        return repeated
 
     async def _purge_fsm_states(self, now: datetime) -> int:
         stmt = (

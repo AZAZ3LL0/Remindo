@@ -12,8 +12,10 @@ from app.db.models import Delivery, Occurrence
 from app.db.repositories.deliveries import DeliveriesRepository
 from app.db.repositories.occurrences import OccurrencesRepository
 from app.db.repositories.reminders import RemindersRepository
+from app.db.repositories.users import UsersRepository
 from app.domain.contracts import ActionKind, DeliveryStatus
 from app.domain.errors import NotFoundError, PermissionDeniedError
+from app.domain.quiet_hours import QuietHours
 from app.domain.reactions import (
     Reaction,
     RejectReason,
@@ -21,6 +23,7 @@ from app.domain.reactions import (
     decide_reaction,
     roll_up_occurrence,
 )
+from app.services.recipients import quiet_hours_of
 
 Action = Literal["done", "snooze", "skip"]
 
@@ -55,6 +58,7 @@ class ReactionsService:
         self._deliveries = DeliveriesRepository(session)
         self._occurrences = OccurrencesRepository(session)
         self._reminders = RemindersRepository(session)
+        self._users = UsersRepository(session)
 
     async def react(self, delivery_id: int, user_id: int, action: Action) -> ReactionResult:
         """Apply one tap under a row lock, so a double tap serialises."""
@@ -91,7 +95,13 @@ class ReactionsService:
             return ReactionResult(applied=False, kind=kind, status=delivery.status, reason=reason)
 
         snooze_minutes = await self._snooze_minutes(occurrence)
-        reaction = decide_reaction(kind, now, snooze_minutes)
+        reaction = decide_reaction(
+            kind,
+            now,
+            snooze_minutes,
+            quiet=await self._quiet_hours(user_id),
+            expires_at=occurrence.expires_at,
+        )
         await self._write(delivery, reaction, now, snooze_minutes)
         await self._close_occurrence(occurrence, reaction)
         await self._session.commit()
@@ -109,6 +119,13 @@ class ReactionsService:
             status=reaction.status,
             snoozed_until=reaction.snoozed_until,
         )
+
+    async def _quiet_hours(self, user_id: int) -> QuietHours:
+        """Silence belongs to the recipient who pressed the button."""
+        user = await self._users.get_by_id(user_id)
+        if user is None:
+            raise NotFoundError(f"user {user_id} not found")
+        return quiet_hours_of(user)
 
     async def _snooze_minutes(self, occurrence: Occurrence) -> int:
         reminder = await self._reminders.get_by_id(occurrence.reminder_id)

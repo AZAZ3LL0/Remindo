@@ -17,6 +17,7 @@ from app.domain.contracts import (
     DeliveryStatus,
     OccurrenceStatus,
 )
+from app.domain.quiet_hours import QuietHours
 
 #: Reactions a recipient can press. `auto_expire` belongs to the reaper.
 USER_ACTIONS: Final[tuple[ActionKind, ...]] = (
@@ -106,8 +107,35 @@ def is_postponed(
     )
 
 
-def decide_reaction(kind: ActionKind, now: datetime, snooze_minutes: int) -> Reaction:
-    """What an accepted tap writes to the delivery row."""
+def postpone(
+    now: datetime, snooze_minutes: int, *, quiet: QuietHours, expires_at: datetime
+) -> datetime:
+    """When a snoozed reminder comes back.
+
+    Quiet hours postpone it, but only as far as the occurrence lives: silence
+    that outlasts the TTL would turn "remind me later" into "never", and a
+    reminder is never dropped (tech.md 1.1). Late beats lost.
+    """
+    requested = now + timedelta(minutes=snooze_minutes)
+    postponed = quiet.shift(requested)
+    return requested if postponed >= expires_at else postponed
+
+
+def decide_reaction(
+    kind: ActionKind,
+    now: datetime,
+    snooze_minutes: int,
+    *,
+    quiet: QuietHours,
+    expires_at: datetime,
+) -> Reaction:
+    """What an accepted tap writes to the delivery row.
+
+    A postponed delivery is a delivery, so it obeys quiet hours: asking for ten
+    more minutes at 22:55 returns the reminder at the end of the silence, not
+    inside it. `snoozed_until` carries the moment the user will actually be
+    reminded, because that is the moment the answer on screen promises.
+    """
     if kind is ActionKind.SNOOZE:
         if snooze_minutes < 1:
             # A snooze into the past or the present is redelivered by the very
@@ -116,7 +144,7 @@ def decide_reaction(kind: ActionKind, now: datetime, snooze_minutes: int) -> Rea
         return Reaction(
             kind=kind,
             status=DeliveryStatus.SNOOZED,
-            snoozed_until=now + timedelta(minutes=snooze_minutes),
+            snoozed_until=postpone(now, snooze_minutes, quiet=quiet, expires_at=expires_at),
         )
     status = _TERMINAL_STATUS.get(kind)
     if status is None:

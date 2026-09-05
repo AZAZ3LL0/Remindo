@@ -1,22 +1,31 @@
-## What this slice does
+Closes the roadmap item **S8. Тихие часы и автоповтор** (`tech.md` §15).
 
-A delivered reminder is answered with Done / Snooze / Skip, and the tap closes the message it came from. Every decision about whether a tap counts and what it writes moved into a pure `app/domain/reactions.py`, the way S4 moved the planner window and S5 the delivery verdict, so the service is left with the row lock, the transaction and the SQL.
+Opens #14 (`contract-change`): two lines of §7.3 and §7.4 disagree with §1.1, and the slice ships the fix on a local stub. `tech.md` is untouched, the core stays at v6.
 
-Three behaviours changed:
+## What the slice does
 
-- a terminal reaction is accepted while a delivery waits out a snooze. Only a terminal delivery or a closed occurrence refuses a tap, which is what tech.md 7.4 says; a second snooze on the same stale button is still a no-op and never pushes the redelivery further away;
-- the message loses its buttons on every tap, a rejected one included. Delivery is at-least-once, so the same delivery can carry live buttons in more than one message, and the redraw is rebuilt from the message entities instead of its plain text so a title containing `<` survives it;
-- a redraw Telegram refuses is logged and dropped. The reaction is committed by then, and the old code let the failure reach the error handler, which told the user their tap failed after it had counted.
+`apply_quiet_hours` already moved a *planned* moment out of the silence. Every other way a delivery entered the queue walked straight back into it.
 
-## Contracts and types touched
+- **Snooze** computed `now + snooze_minutes` and queued it. Ten more minutes at 22:55 answered at 23:05, inside the silence the user had just configured. It now lands at the end of the silence, and `snoozed_until` carries that moment, so the answer on screen tells the truth.
+- **The automatic repeat** queued `now`. It now obeys the same silence, and a repeat the silence would push past `occurrence.expires_at` is dropped rather than deferred: its buttons would be dead on arrival, and the sweep expires the occurrence anyway.
+- **A snooze the silence would push past the TTL** falls back to the requested moment. Late beats lost (§1.1).
+- **Quiet hours are read from the user**, not from `reminders.timezone`. That column is a snapshot taken at creation (§4.2), so a user who moved was being silenced against the wall clock of the city they left.
+- **Expiry** re-checks in the domain that the occurrence is not already answered, so a `done` occurrence is never overwritten with silence.
 
-None. No enum value, callback factory, schedule payload, text key or database column changed. `ReactionResult` now carries `ActionKind` and `RejectReason` instead of two bare strings; both already exist in `app/domain/contracts.py` and in the new domain module.
+## Bug found and fixed
 
-Two modules are new, following the S4 and S5 layout: `app/domain/reactions.py` and `app/bot/render/reactions.py`.
+`repeats_sent` lives on the occurrence, but the reaper bumped it once per delivery. A shared reminder handed the same occurrence back for every recipient, so one sweep burned the whole repeat budget. The budget is now read once per sweep and spent once.
 
-## Test coverage
+## Contracts and types
 
-- contract: `tests/contract/test_reactions_contract.py` — the redrawn message clears the same limits the original did and carries no keyboard, in both locales and at the longest allowed title; the reminder survives its own answer; every button maps onto an action the domain knows.
-- idempotency: `tests/integration/test_reactions.py` — each of the three reactions twice writes one action row and one status, a second snooze leaves `next_attempt_at` where it was, and the same run end to end in `tests/e2e/test_reactions_slice.py`.
-- error path: a refused `EditMessageText` leaves the reaction applied and answers the user normally; a late tap on an expired occurrence and a tap from another recipient write nothing.
-- property-based: `tests/unit/test_reactions.py` — whatever a tap writes, the state it leaves refuses the same tap; an answered delivery and an expired occurrence refuse every reaction; a snooze always lands in the future; only a final answer from the last recipient closes the occurrence.
+No schema change, no migration, no new callback data, no new text keys.
+
+Two new modules: `app/domain/sweeping.py` (`RepeatPlan`, `decide_repeat`, `is_overdue`) and `app/services/recipients.py` (`quiet_hours_of`). `app/domain/quiet_hours.py` gains the `QuietHours` value object; `app/domain/reactions.py` gains `postpone`, and `decide_reaction` now takes the silence and the TTL.
+
+## Tests
+
+- **Contract** — `tests/contract/test_reaper_contract.py`: the expiry edit passes `FakeBotGateway`, the repeat hands the queue an aware moment, and both halves of the lifecycle agree on what `expired` means.
+- **Idempotency** — sweeping twice expires once, writes one `auto_expire` and edits one message; the repeat budget holds across sweeps and across recipients.
+- **Error path** — `TelegramForbiddenError` and `TelegramRetryAfter` on the expiry edit: the occurrence still expires and the action is still written.
+- **Property-based** — `tests/unit/test_sweeping.py` on `decide_repeat` and `is_overdue`, plus new invariants on `postpone` and `QuietHours`, including the ambiguous local hour on the autumn transition in `Europe/Berlin`.
+- **End to end** — `tests/e2e/test_quiet_hours_slice.py`: silence the night, create a 03:00 reminder, watch it stay quiet at 03:00, arrive at 07:00, repeat once, expire, and refuse a tap afterwards.
