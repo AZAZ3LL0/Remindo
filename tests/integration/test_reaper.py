@@ -7,8 +7,8 @@ import pytest
 import sqlalchemy as sa
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 
-from app.db.models import Delivery, DeliveryAction, FSMState, Occurrence
-from app.domain.contracts import ActionKind, DeliveryStatus, OccurrenceStatus
+from app.db.models import Delivery, DeliveryAction, FSMState, Occurrence, ReminderRecipient
+from app.domain.contracts import ActionKind, DeliveryStatus, OccurrenceStatus, RecipientRole
 from app.services.dispatching import ReaperService
 from tests.conftest import FROZEN_NOW
 
@@ -308,3 +308,44 @@ async def test_an_answered_occurrence_is_never_expired_underneath_the_user(
     assert result.expired == 0
     assert (await reload(db_session, Occurrence, occurrence.id)).status is OccurrenceStatus.DONE
     assert await count_actions(db_session, delivery.id, ActionKind.AUTO_EXPIRE) == 0
+
+
+async def test_one_sweep_costs_one_repeat_however_many_recipients_it_reaches(
+    db_session,
+    fake_clock,
+    fake_bot,
+    user_factory,
+    reminder_factory,
+    occurrence_factory,
+    delivery_factory,
+):
+    """The budget lives on the occurrence, not on a delivery (tech.md 4.2)."""
+    reminder = await reminder_factory(repeat_after_minutes=30, max_repeats=1)
+    watcher = await user_factory()
+    db_session.add(
+        ReminderRecipient(
+            reminder_id=reminder.id,
+            user_id=watcher.id,
+            role=RecipientRole.WATCHER,
+            accepted_at=FROZEN_NOW,
+        )
+    )
+    occurrence = await occurrence_factory(
+        reminder,
+        fire_at=FROZEN_NOW - timedelta(hours=1),
+        expires_at=FROZEN_NOW + timedelta(hours=2),
+        status=OccurrenceStatus.SENT,
+    )
+    for user_id in (reminder.owner_id, watcher.id):
+        await delivery_factory(
+            occurrence,
+            user_id=user_id,
+            status=DeliveryStatus.SENT,
+            sent_at=FROZEN_NOW - timedelta(hours=1),
+        )
+    await db_session.commit()
+
+    result = await build_service(db_session, fake_clock, fake_bot).sweep()
+
+    assert result.repeated == 2, "both recipients are reminded again"
+    assert (await reload(db_session, Occurrence, occurrence.id)).repeats_sent == 1
