@@ -1,37 +1,46 @@
-Core change for **S12. Ops** (`tech.md` §15). Appends §24 and bumps the core to **v11**.
+Closes the roadmap item **S12. Ops** (`tech.md` §15), the last one.
 
-No slice code here. The last roadmap item needs a job id, a health enum, four settings, two text keys and a pinned dependency, and every one of those is a shared file (§11.2) that a slice does not touch.
+Builds on the v11 contract PR (#24), which is already in `main`.
 
-## §24, and the three decisions in it
+## What the slice does
 
-**Health is a fact about the cycle, not about the database.** `run_loop` already catches, logs and continues, so from outside a healthy worker and a hung one look identical. The heartbeat is stamped on *every attempt*, failed ones included: a database that blinks for a minute knocks over all five cycles while the loop keeps turning, and restarting the worker at exactly that moment cures nothing and compounds into a restart loop. A genuinely hung cycle is still caught, from the other side — its attempt never finishes, so its mark stops moving. That is also why `/healthz` does not query the database.
+The worker ran five loops and told nobody anything. `run_loop` caught, logged and continued, so from outside a healthy worker and one whose planner had hung looked identical: the process was up either way. Nothing could say how far behind delivery was, container logs grew without a ceiling, and there was no backup.
 
-A cycle is stale after `max(interval * HEALTH_STALE_FACTOR, HEALTH_STALE_FLOOR_SECONDS)`. The floor exists for the dispatcher: its period is ten seconds, and three of those is less than one planner tick, so a normal pause in one cycle would read as a failure in its neighbour.
+- **`GET /healthz`** on the worker: `200` while every cycle is ticking, `503` naming the one that stopped. `docker compose ps worker` now reports `healthy`, and `restart: unless-stopped` acts on the red.
+- **`GET /metrics`**: Prometheus text exposition of the three numbers §15 asked for — queue size, delivery lag, error share — plus per-cycle age and failure counters.
+- **`ops.monitor`**, a fifth cycle, reading the queue once a minute and messaging `ADMIN_USER_IDS` when the lag crosses `ALERT_LAG_MINUTES`.
+- **`scripts/backup.sh`** and **log rotation** on every compose service.
 
-**The error window is measured on `occurrences.fire_at`, not on `deliveries.updated_at`.** `updated_at` is written by the database's own `now()`, and every other moment in the product comes from `Clock` (§8). Mixing two clocks for the sake of a metric is not worth it, and `fire_at` answers the same question in the domain's own words: of the things that came due in the last few minutes, what share did not get out.
+## The three decisions it turns on
 
-**The alert fires on the edge, not on the tick.** One message when the lag crosses `ALERT_LAG_MINUTES`, one when it comes back, nothing in between. An alert repeated every minute is not observation, it is a way to teach an operator to ignore it. The state lives in process memory rather than in a row: it belongs to the observer, not to the product, and a restart that resets it to `clear` costs one re-alert on the next tick instead of a migration.
+**The heartbeat marks every attempt, failed ones included.** A database that blinks for a minute knocks over all five cycles while the loop keeps turning, and restarting the worker at that exact moment cures nothing and compounds into a restart loop. So `/healthz` never touches the database, and what it measures is the loop turning. A genuinely hung cycle is still caught from the other side: its attempt never returns, so its mark freezes and the budget runs out.
 
-## What lands
+**The alert fires on the edge.** One message when the lag crosses the threshold, one when it comes back, nothing in between — an alert repeated every minute is not observation, it is a way to teach an operator to ignore it. That is also what makes the cycle idempotent: two runs in the same state send one message. The state lives in process memory because it belongs to the observer, not to the product; a restart costs one re-alert instead of a migration.
 
-| file | change |
+**Queue size counts what is overdue, not what is planned.** A reminder due tomorrow sits in the queue by design. Folding it in with what the dispatcher failed to send would measure popularity rather than delay.
+
+## The window, and why it hangs off `fire_at`
+
+The error share is `failed / (failed + delivered)` over `METRICS_WINDOW_MINUTES`, and the window is cut on `occurrences.fire_at` rather than `deliveries.updated_at`. `updated_at` is written by the database's own `now()`, while every other moment in the product comes from `Clock` (§8), and mixing two clocks for a metric is not a trade worth making. `fire_at` also asks the better question: of the things that came due in the last few minutes, what share never got out. Deliveries still queued count in neither half — they say nothing about transport yet — and an empty window reads as zero, not one, for the reason §23.2.6 gives about completion.
+
+One query, not three: three would each see a different `now`, and a report whose lag and queue size disagree about the present is worse than none. A predicate bounds it to rows one of the counters can use, so it is not a full scan of every delivery ever made once a minute.
+
+## Tests
+
+| type | what it pins |
 |---|---|
-| `tech.md` | §24, version `v11`, changelog line |
-| `app/domain/contracts.py` | `JobId.OPS_MONITOR`, `HealthStatus` (`ok` / `stale`) |
-| `app/core/config.py`, `.env.example` | `HEALTH_HOST`, `HEALTH_PORT`, `ALERT_LAG_MINUTES`, `METRICS_WINDOW_MINUTES`, plus `BACKUP_*` for the shell only |
-| `app/bot/render/texts.py` | `ops.alert_lag`, `ops.alert_cleared`, both locales, same placeholders |
-| `requirements.txt` | `aiohttp` pinned; it was already an implicit gift from aiogram, and the worker now serves HTTP on purpose |
-| `docker/compose.yml` | `json-file` rotation on every service, worker `healthcheck` and `restart: unless-stopped` |
-| `scripts/backup.sh`, `Makefile`, `README.md` | `pg_dump -Fc` with retention, `make health` / `metrics` / `backup` / `restore` |
+| contract | `/healthz` shape and its 200/503; `/metrics` parsed back the way a scraper reads it, including no scientific notation; the alert passes `FakeBotGateway` in both locales |
+| idempotency | two `ops.monitor` runs on the same lag send one alert; catching up says so once and then falls silent |
+| error path | `TelegramRetryAfter` leaves the edge unlatched for the next tick; `TelegramForbiddenError` on one admin does not cost the others their warning and mutes only that admin |
+| property-based | lag never negative and zero on an empty queue; ratio in [0, 1]; staleness monotone in time and never below the floor; `decide_alert` a two-state machine that never reports the same edge twice |
+| end to end | a failing cycle still keeps `/healthz` green and increments its failure counter; a cycle that stops ticking turns it red |
 
-`BACKUP_DIR` and `BACKUP_KEEP_DAYS` deliberately stay out of `Settings`: a shell script reads them, and the ban on `os.environ` (§11.1) is about Python. No second Python module reads the environment.
+1792 passed, coverage 97%.
 
-The backup runs inside the `db` container, which is the one place `pg_dump` is guaranteed to exist and to match the server version. The dump lands under a `.partial` name and is renamed only after a clean exit, and retention prunes *after* the dump, never before: pruning first would leave a directory holding neither a fresh backup nor the old ones the moment `pg_dump` fails.
+## Verified against the running stack
+
+`docker compose ps worker` reports `healthy`; `/healthz` returns all five cycles with their ages and budgets; `/metrics` parses. `make backup` wrote a 35K custom-format dump, `make restore` brought back three reminders deleted from underneath it. Every container carries `json-file` with `max-size=10m, max-file=5`.
 
 ## Boundaries
 
-No Prometheus, Grafana or alertmanager in compose — the exposition is offered, and who scrapes it is the host's business. No per-user metrics: those are §23, they are counted from the journal and belong to the recipient. No `/readyz`: the worker accepts no inbound requests, so readiness and liveness are the same fact.
-
-## Checks
-
-`ruff check`, `ruff format --check`, `mypy app` and the full suite are green: 1747 passed, coverage 97%.
+No Prometheus or Grafana in compose: the exposition is offered, and who scrapes it is the host's business. No per-user metrics — those are §23, counted from the journal and owned by the recipient. No `/readyz`: the worker takes no inbound requests, so readiness and liveness are one fact.
