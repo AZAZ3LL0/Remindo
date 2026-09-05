@@ -1,30 +1,42 @@
-Core contract change for the roadmap item **S10. Совместные напоминания** (`tech.md` §15). Bumps the core to **v9** and appends §22.
+Closes the roadmap item **S10. Совместные напоминания** (`tech.md` §15).
 
-Merge this before the slice PR; the slice branches off it.
+Builds on the v9 contract PR and targets its branch; merge that one first.
 
-## Why a contract change
+## What the slice does
 
-S10 had nowhere to land. An invitation had no row to live in, no factory to be pressed with, no strings to speak, and the link `t.me/<bot>?start=inv_<token>` had no bot name to be built from. None of that can be invented inside a slice PR (`tech.md` §0, §11.2).
+A reminder could only ever reach the person who made it. The schema had a `reminder_recipients` table with a `watcher` role and an `accepted_at` column, and the planner already delivered to everyone accepted — but nothing could put a second row there.
 
-## What §22 fixes
+- **The owner hands out a link.** The card gains an Access button. Behind it: who receives this reminder, who is still deciding, a button to mint `t.me/<bot>?start=inv_<token>`, and a button to take it back. The link is sent as a message of its own, because it is meant to be forwarded and the next redraw would take it away.
+- **The invitee follows it and answers.** The link resolves into a pending recipient row, and the invitee sees the reminder itself before deciding — a link in a chat should not subscribe anybody silently.
+- **Onboarding comes first.** An invitee usually meets the bot through the link, so `/start inv_…` asks for a timezone before anything else and shows the invitation once it is answered. Without a timezone the reminder has no local time to be shown in. The invitation survives the detour because it is a row, not FSM state.
+- **`/shared`** lists what other people share, pending invitations marked, each row opening a read-only card with an unsubscribe button.
+- **Both sides can end it.** The owner revokes the link; the watcher unsubscribes, with a confirmation.
 
-- **An invitation is a row, not a signature.** A token derived from the reminder id with a secret can be neither revoked nor expired: a link that reaches a group chat once keeps working forever. `reminder_invites` carries `expires_at` and `revoked_at`, and a partial unique index keeps exactly one live invitation per reminder, so revoking actually revokes.
-- **`ShareCb`** (prefix `i`) is the access screen's own factory: open, invite, revoke, accept, decline, leave, confirm_leave. It carries the reminder id and not the token, because by the time any of those is pressed the recipient row already exists.
-- **Acceptance goes through a recipient row**, `role = 'watcher'` with `accepted_at IS NULL`, which is exactly what the schema of §4.2 already describes. A row rather than FSM state, because the invitee usually meets the bot for the first time: onboarding has to ask for a timezone first, and the invitation has to survive it.
-- **Accepting and unsubscribing correct the queue.** The planner creates deliveries at materialisation, so a watcher who accepts later would receive nothing already materialised, and one who leaves would keep receiving what is already queued. Accepting backfills deliveries for `pending` occurrences still ahead; leaving takes back the `pending` deliveries of that user. `sent` is left alone for the same reason a pause leaves it alone (§21.3).
-- **A watcher cap.** Every acceptance multiplies deliveries per occurrence, so a link leaked into a public chat would turn one reminder into a broadcast.
-- **`BOT_USERNAME` in the configuration.** `getMe` is a network call and `USE_FAKE_BOT` has no network, so the link is built from configuration or not at all.
+## The two queue bugs the slice had to fix
+
+The planner creates deliveries at materialisation time, so joining and leaving both left the queue lying.
+
+**Accepting** now backfills deliveries for the occurrences still ahead — otherwise a watcher who accepted at noon would receive nothing until the planner reached past the horizon it had already covered. The boundary is `fire_at > now` rather than every `pending` row: an occurrence whose moment has passed is already with the dispatcher, and a watcher who joined a minute ago should not be told about something that was due before they arrived.
+
+**Unsubscribing** now takes back the `pending` deliveries of that recipient. `sent` and `snoozed` are left alone, by the same rule a pause follows (§21.3): live buttons are on somebody's screen, and a snooze was the user's own request.
 
 ## Contracts and types
 
-`tech.md` §22 (v9). New table `reminder_invites` with migration `9c1f4b7ae520`, and the model `ReminderInvite`.
+No schema change and no core file touched here: everything the slice needs landed in the v9 contract PR.
 
-`domain/contracts.py` gains `INVITE_TOKEN_BYTES`, `INVITE_TOKEN_LENGTH`, `INVITE_TTL_HOURS`, `REMINDER_WATCHERS_MAX`, `DEEP_LINK_MAX_LENGTH`. `domain/errors.py` gains `InviteExpiredError` and `RecipientLimitError`; an unknown token stays a `NotFoundError` and one's own invitation a `PermissionDeniedError`, because neither needs a second name.
+New: `app/domain/sharing.py` (token, deep link, `InviteState`, `check_join`), `app/services/sharing.py` (`SharingService`, `Participant`, `SharedReminder`), `app/db/repositories/invites.py`, `app/bot/handlers/share.py`, `app/bot/render/share.py`.
 
-`callbacks.py` gains `ShareCb` and the `shared` value of `PageCb.scope`. `confirm_kb` takes a fourth action, `leave`. `keyboards/share.py` holds the four access screens; `reminder_card_kb` gains the Access button. `texts.py` gains the `share.*` and `btn.*` keys, and `reminder.card` gains a third placeholder, `{shared}` — the card is the one screen where a reminder's state is read, and a reminder that goes out to three more people has to say so. `render_reminder_card` takes `watchers: int = 0`, so no existing call changes.
+`RecipientsRepository` gains the recipient queries; `OccurrencesRepository` gains `list_upcoming`; `DeliveriesRepository` gains `delete_pending_for_recipient`. `handlers/start.py` routes a start payload into the sharing module and finishes onboarding into the invitation rather than into the settings screen — `/start` keeps one entry point, so the two modules do not have to import each other.
+
+The domain draws no randomness: `new_invite_token` takes the entropy as an argument the way pure functions take `now` from the `Clock`, and the service supplies it. A token is therefore reproducible in a test without patching anything.
 
 ## Tests
 
-Contract only, as core PRs are: the new factory round-trips inside 64 bytes and the frozen prefix list gains `i`. The slice PR brings the rest.
+- **Contract** — `tests/contract/test_share_contract.py`: every screen passes `FakeBotGateway`, `ShareCb` round-trips inside 64 bytes at full size and is registered with the gateway, the shared list pages without losing its scope, revoking is drawn only when there is a link to revoke, cancelling a leave returns to the screen it was asked on, the token length matches the entropy it is made of, a full-size payload fits Telegram's limit, and a recipient with no username and no name still has something to be called.
+- **Idempotency** — following a link twice leaves one row; accepting twice backfills one set of deliveries and does not move the moment the first press recorded; revoking twice revokes once; unsubscribing twice unsubscribes once; and a planner cycle over a two-recipient reminder creates nothing on its second run.
+- **Error path** — `TelegramRetryAfter` and `TelegramForbiddenError` on the redraw leave the committed change in place and do not let the press be replayed into a second effect; an identical redraw answers `message is not modified`, which is the expected outcome.
+- **Property-based** — `tests/unit/test_sharing.py` over `domain/sharing.py`: a token is always the contract's length, uses only characters Telegram accepts, and is a function of its entropy alone; a payload round-trips and fits the deep-link limit; the prefix is split off by length and not by separator, because the token alphabet contains `_` too; revocation wins over the clock at every offset; and the watcher limit refuses a newcomer while always letting an existing watcher back in.
+- **Integration** — `tests/integration/test_sharing.py`: the queue corrections above and what they must not touch, the refusal table of §22.5 including the owner's own link and a full reminder, a watcher who cannot edit or see somebody else's reminder in `/list`, a stranger's crafted press, a delete cascading into the invitation, a pause taking back the watcher's queue too, and an occurrence closing only once every recipient has reacted.
+- **End to end** — `tests/e2e/test_share_slice.py`: two people through real routers, from `/new` to a reminder the dispatcher sends to both chats. The suite gains a second feeder, because a shared reminder cannot be exercised by one person.
 
-`ruff check`, `ruff format --check`, `mypy app` and `pytest` are green: 1526 passed.
+`ruff check`, `ruff format --check`, `mypy app` and `pytest` are green: 1636 passed, coverage 97%. `docker compose up` starts the stack with `USE_FAKE_BOT=true` and no token.
