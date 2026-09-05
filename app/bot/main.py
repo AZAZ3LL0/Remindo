@@ -12,6 +12,7 @@ from app.bot.handlers import (
     errors,
     lists,
     manage,
+    menu,
     reactions,
     reminders,
     share,
@@ -33,11 +34,14 @@ from app.core.logging import get_logger
 
 _log = get_logger(__name__)
 
-#: Routers, in the order the dispatcher consults them. The catch-all in `help`
-#: comes last on purpose, and that is a safety condition rather than a
-#: preference: every text handler is state-filtered and lives in a router above,
-#: so the catch-all cannot swallow the wizard's input (tech.md 25.4).
+#: Routers, in the order the dispatcher consults them. Both ends of this tuple
+#: are safety conditions rather than preferences, and they hold one invariant
+#: from opposite sides. `menu` comes first because a pressed button arrives as
+#: plain text and navigation has to beat free input (tech.md 26.4). The catch-all
+#: in `help` comes last because it must beat nobody: every text handler is
+#: state-filtered and lives in a router above it (tech.md 25.4).
 HANDLER_MODULES: Final = (
+    menu,
     start,
     settings_handlers,
     categories,
