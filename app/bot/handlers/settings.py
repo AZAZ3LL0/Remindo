@@ -10,7 +10,9 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.callbacks import SetCb, WizCb, unpack_wall_time
+from app.bot.filters import NOT_A_COMMAND
 from app.bot.fsm.onboarding import SettingsForm
+from app.bot.keyboards.menu import main_menu_kb
 from app.bot.keyboards.settings import (
     language_picker_kb,
     quiet_menu_kb,
@@ -105,7 +107,7 @@ async def handle_timezone(
     await _show(query, *settings_screen(updated))
 
 
-@router.message(SettingsForm.timezone)
+@router.message(SettingsForm.timezone, NOT_A_COMMAND)
 async def handle_timezone_text(
     message: Message,
     user: User,
@@ -141,6 +143,16 @@ async def handle_language(
     updated = await service.set_language(user.id, callback_data.value)
     language_name = T(f"lang.{updated.language}", updated.language)
     await query.answer(T("settings.language_saved", updated.language, language=language_name))
+    # The menu is redrawn in the new language, and that takes a new message:
+    # `reply_markup` belongs to a message, so editing the old one cannot replace
+    # a keyboard standing in the chat (tech.md 26.3). The stale captions keep
+    # working meanwhile, because they are matched across every locale. The
+    # settings screen is redrawn after it, so it stays the screen in hand.
+    if isinstance(query.message, Message):
+        await query.message.answer(
+            T("settings.language_saved", updated.language, language=language_name),
+            reply_markup=main_menu_kb(updated.language),
+        )
     await _show(query, *settings_screen(updated))
 
 
@@ -215,7 +227,7 @@ async def handle_quiet_start(
     )
 
 
-@router.message(SettingsForm.quiet_start)
+@router.message(SettingsForm.quiet_start, NOT_A_COMMAND)
 async def handle_quiet_start_text(message: Message, user: User, state: FSMContext) -> None:
     try:
         start = parse_wall_time(message.text or "")
@@ -259,7 +271,7 @@ async def handle_quiet_end(
     await _show(query, *settings_screen(updated))
 
 
-@router.message(SettingsForm.quiet_end)
+@router.message(SettingsForm.quiet_end, NOT_A_COMMAND)
 async def handle_quiet_end_text(
     message: Message,
     user: User,
