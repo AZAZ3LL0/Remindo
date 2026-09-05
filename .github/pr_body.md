@@ -1,27 +1,31 @@
-Contract only. The slice that uses it is a separate PR, stacked on this branch.
+Builds on the v13 contract PR (#28). Base it on `main` once that one lands.
 
-`tech.md` §9 promised the main menu a reply keyboard and no slice ever built one: `grep -rn ReplyKeyboardMarkup app/` returns nothing. The product answers only to eight typed words, which asks a new user to remember what §25 had just admitted they cannot be asked to remember. The Telegram command menu sits behind a button and lists commands; a permanent keyboard shows actions.
+Eight buttons under the input field, always. Before this PR the only way into any screen was typing a slash command or opening Telegram's own command menu, which is a list of names rather than a row of actions.
 
-## What §26 fixes
+## What lands
 
-- **§26.1** The keyboard is the third consumer of `app/bot/commands.py`. It takes the whole list with no exemptions of its own: `MENU_EXEMPT_COMMANDS` keeps `/start` out of the Telegram menu, which draws its own Start button, and a keyboard has nothing there to duplicate. Eight commands, eight buttons, two to a row, same order.
-- **§26.2** Captions are their own keys, not the `cmd.*` descriptions. A menu row is wide and a button is narrow, and «Таймзона, язык, тихие часы» does not fit on one. This is not a second set of descriptions: the two key families have different jobs and are bound by the command name, which the contract test checks.
-- **§26.3** A caption is matched across **every** locale. A reply keyboard is drawn in the chat once and stays; somebody who switched language is pressing captions of the language they left. Hence the invariant that captions are unique in the union of locales.
-- **§26.4** The menu router is registered **first**, and that is a correctness condition. A press arrives as an ordinary text message, indistinguishable from an answer to the wizard, so navigation has to beat free text. It is the mirror of §25.4: the catch-all is last because it must beat nobody.
-- **§26.5** Navigation drops the wizard, for both forms of it. Typed commands were never winning against a form step at all — `/list` on the title step names a reminder `/list` — and the keyboard made that visible rather than causing it.
-- **§26.6** `is_persistent` is required and `one_time_keyboard` refused: a menu that hides after the first press stops being permanent exactly when somebody starts using it.
+- **`app/bot/handlers/menu.py`**, registered **first** in `HANDLER_MODULES`. A press arrives as plain text, so anywhere later the wizard takes it for an answer to the current question. The mirror of the catch-all, which is last because it must win over nobody, and both ends now say so in one comment on the tuple.
+- **A press calls the command's handler** rather than repeating its body. A second copy of the logic would drift from the first, the way the menu and the help table would drift without one list.
+- **The keyboard is drawn where a message carries no inline markup**: the returning greeting, the end of onboarding, `/help`, the answer to unrecognised text, and a message after a language switch. One message holds one `reply_markup`, so these are the only places it can ride.
+- **The onboarding attachment sits on the timezone confirmation**, not on the help screen after it: the invitee branch returns early with an inline keyboard, and put there both branches end with the menu drawn.
 
-## What ships with it
+## A latent bug this made visible
 
-- `btn.menu_*`, eight captions in both locales. Plain text, no emoji, like the other sixty `btn.*` strings.
-- `app/bot/commands.py` gains `MENU_BUTTONS`, `ALL_COMMAND_NAMES` and `main_menu_labels()`. Still no rendering in it.
-- `app/bot/keyboards/menu.py` — `main_menu_kb(lang)`.
-- `app/bot/filters.py` — `NOT_A_COMMAND`, built once from `ALL_COMMAND_NAMES`, so a ninth command is kept out of every free-text step by adding it in one place.
+Free-text steps were filtered by state alone. `/list` typed on the title step became the title, and the reminder was created named `/list`. Seventeen handlers across five modules now carry `NOT_A_COMMAND`, built once from the command list.
 
-`OutgoingMessage` is deliberately untouched: the keyboard belongs to the `bot` process, and the worker sends reminders rather than menus.
+The other half of the same rule: opening a screen clears the FSM. `/settings` and `/categories` already did; `/list`, `/today`, `/stats`, `/shared` and `/help` did not, so a user who navigated away found their next sentence becoming the title of a reminder they had left. `/new` now clears too — **a change beyond the reply keyboard** — because the abandoned draft it inherited could still carry `edit_reminder_id`, which would have turned a new reminder into an update of an old one.
+
+## One existing test moved a line
+
+`test_settings_switches_the_language_and_repeating_it_changes_nothing` asserts the settings screen is the last thing rendered. The language switch now also sends the redrawn keyboard, so that send happens **before** the screen is redrawn rather than after. The assertion is unchanged and still means what it meant.
 
 ## Tests
 
-Nothing new here. The existing catalogue contract covers the eight captions the moment they exist (both locales, matching placeholders, non-empty), and the tests that weld the keyboard to the dispatcher ride with the slice that registers it.
+29 new, both required kinds plus the routing invariant.
 
-`ruff check`, `ruff format --check`, `mypy app`, `pytest` green: 1876 passed.
+- **Contract** (`tests/contract/test_menu_keyboard.py`) walks the real dispatcher, not a copy: every button has a registered handler, every command reaches the keyboard, every button is routed. Captions are unique across the union of locales and carry no placeholders, the index covers both locales, the rows are two wide, the markup is persistent and not one-time, and the menu router is first while `help` and `errors` stay last.
+- **End to end** (`tests/e2e/test_menu_slice.py`) presses all eight captions and asserts each opens exactly the screen its command opens; a caption pressed on the wizard's title step navigates instead of naming, and the next free phrase is no longer taken as a title; a typed `/list` on that step opens the list; ordinary text still reaches the wizard; a `ru` caption still works after switching to `en`, and the keyboard comes back in the new language.
+
+Mutation-checked rather than assumed: moving the `menu` router to the end of `HANDLER_MODULES` fails exactly two tests, the contract one on order and the end-to-end one on the wizard.
+
+`ruff check`, `ruff format --check`, `mypy app` green. 1905 passed, coverage 97.25%.
