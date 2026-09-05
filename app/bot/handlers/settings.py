@@ -39,10 +39,21 @@ def _service(
     return OnboardingService(session, clock, default_timezone, default_language)
 
 
+def settings_screen(user: User) -> tuple[str, InlineKeyboardMarkup]:
+    """The root settings screen, text and keyboard together.
+
+    Public because `/start` draws it too. The pair is built in one place so
+    that a switch shown in the text and a button offering to flip it can never
+    disagree about which way it currently points.
+    """
+    return render_settings(user), settings_kb(user.language, digest_on=user.digest_enabled)
+
+
 @router.message(Command("settings"))
 async def handle_settings(message: Message, user: User, state: FSMContext) -> None:
     await state.clear()
-    await message.answer(render_settings(user), reply_markup=settings_kb(user.language))
+    text, keyboard = settings_screen(user)
+    await message.answer(text, reply_markup=keyboard)
 
 
 @router.callback_query(SetCb.filter(F.field == "menu"))
@@ -55,7 +66,7 @@ async def handle_menu(
     screen = callback_data.value
 
     if screen == "root":
-        text, keyboard = render_settings(user), settings_kb(lang)
+        text, keyboard = settings_screen(user)
     elif screen == "tz":
         text, keyboard = T("settings.pick_timezone", lang), timezone_picker_kb(lang)
     elif screen == "lang":
@@ -91,7 +102,7 @@ async def handle_timezone(
     updated = await service.set_timezone(user.id, callback_data.value)
     await state.clear()
     await query.answer(T("settings.saved", updated.language))
-    await _show(query, render_settings(updated), settings_kb(updated.language))
+    await _show(query, *settings_screen(updated))
 
 
 @router.message(SettingsForm.timezone)
@@ -112,7 +123,8 @@ async def handle_timezone_text(
         return
 
     await state.clear()
-    await message.answer(render_settings(updated), reply_markup=settings_kb(updated.language))
+    text, keyboard = settings_screen(updated)
+    await message.answer(text, reply_markup=keyboard)
 
 
 @router.callback_query(SetCb.filter(F.field == "lang"))
@@ -129,7 +141,7 @@ async def handle_language(
     updated = await service.set_language(user.id, callback_data.value)
     language_name = T(f"lang.{updated.language}", updated.language)
     await query.answer(T("settings.language_saved", updated.language, language=language_name))
-    await _show(query, render_settings(updated), settings_kb(updated.language))
+    await _show(query, *settings_screen(updated))
 
 
 @router.callback_query(SetCb.filter(F.field == "quiet"))
@@ -148,7 +160,7 @@ async def handle_quiet(
         updated = await service.set_quiet_hours(user.id, None, None)
         await state.clear()
         await query.answer(T("settings.quiet_cleared", updated.language))
-        await _show(query, render_settings(updated), settings_kb(updated.language))
+        await _show(query, *settings_screen(updated))
         return
 
     await state.set_state(SettingsForm.quiet_start)
@@ -219,7 +231,7 @@ async def handle_quiet_end(
         return
 
     await query.answer()
-    await _show(query, render_settings(updated), settings_kb(updated.language))
+    await _show(query, *settings_screen(updated))
 
 
 @router.message(SettingsForm.quiet_end)
@@ -246,7 +258,8 @@ async def handle_quiet_end_text(
         await message.answer(T("settings.quiet_equal", user.language))
         return
 
-    await message.answer(render_settings(updated), reply_markup=settings_kb(updated.language))
+    text, keyboard = settings_screen(updated)
+    await message.answer(text, reply_markup=keyboard)
 
 
 async def _remember_start(state: FSMContext, start: time) -> None:

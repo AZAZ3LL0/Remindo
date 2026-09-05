@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.callbacks import SetCb
 from app.bot.fsm.onboarding import Onboarding
+from app.bot.handlers.settings import settings_screen
 from app.bot.handlers.share import follow_invite, pending_invite_screen
-from app.bot.keyboards.settings import settings_kb, timezone_picker_kb
-from app.bot.render.settings import render_settings
+from app.bot.keyboards.settings import timezone_picker_kb
 from app.bot.render.texts import T
 from app.core.clock import Clock
 from app.db.models import User
@@ -56,7 +56,8 @@ async def handle_start(
         return
 
     await message.answer(T("start.welcome_back", user.language, name=user.first_name))
-    await message.answer(render_settings(user), reply_markup=settings_kb(user.language))
+    text, keyboard = settings_screen(user)
+    await message.answer(text, reply_markup=keyboard)
 
 
 @router.callback_query(Onboarding.timezone, SetCb.filter(F.field == "tz"))
@@ -120,7 +121,8 @@ async def _finish_onboarding(
         text, keyboard = screen
         await message.answer(text, reply_markup=keyboard)
         return
-    await message.answer(render_settings(user), reply_markup=settings_kb(user.language))
+    text, keyboard = settings_screen(user)
+    await message.answer(text, reply_markup=keyboard)
 
 
 async def _reply(query: CallbackQuery, text: str) -> None:

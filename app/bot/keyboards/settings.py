@@ -9,7 +9,7 @@ from app.domain.contracts import POPULAR_TIMEZONES, Language
 
 #: `SetCb.value` atoms that are commands rather than data. No IANA zone and no
 #: language code may collide with them; the contract test holds that line.
-RESERVED_VALUES: frozenset[str] = frozenset({"root", "manual", "edit", "off"})
+RESERVED_VALUES: frozenset[str] = frozenset({"root", "manual", "edit", "off", "on"})
 
 #: Wall-clock hours offered when picking quiet hours. Evening first, morning
 #: second, because that is the order the two questions are asked in.
@@ -31,13 +31,24 @@ def _back_button(builder: InlineKeyboardBuilder, lang: Lang) -> None:
     builder.button(text=T("btn.back", lang), callback_data=SetCb(field="menu", value="root"))
 
 
-def settings_kb(lang: Lang = DEFAULT_LANG) -> InlineKeyboardMarkup:
-    """Root settings screen: one button per sub-screen."""
+def settings_kb(lang: Lang = DEFAULT_LANG, *, digest_on: bool = True) -> InlineKeyboardMarkup:
+    """Root settings screen: one button per sub-screen.
+
+    The digest is the exception and toggles in place (tech.md 23.7): the
+    question has one answer and two values, and a screen holding a single
+    switch would only stand between the question and the answer. The button
+    therefore sends the value it would set, never the one already in force,
+    by the rule that draws one of pause and resume (tech.md 21.6).
+    """
     builder = InlineKeyboardBuilder()
     builder.button(text=T("btn.timezone", lang), callback_data=SetCb(field="menu", value="tz"))
     builder.button(text=T("btn.language", lang), callback_data=SetCb(field="menu", value="lang"))
     builder.button(text=T("btn.quiet", lang), callback_data=SetCb(field="menu", value="quiet"))
-    builder.adjust(2, 1)
+    builder.button(
+        text=T("btn.digest_off" if digest_on else "btn.digest_on", lang),
+        callback_data=SetCb(field="digest", value="off" if digest_on else "on"),
+    )
+    builder.adjust(2, 2)
     return builder.as_markup()
 
 

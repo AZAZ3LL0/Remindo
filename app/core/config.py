@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     delivery_lock_seconds: int = Field(default=60, ge=1)
     occurrence_ttl_minutes: int = Field(default=180, ge=1)
 
+    #: Weekly digest (tech.md 23.9). The weekday is ISO (Monday is 1) and the
+    #: hour is local to the recipient, never UTC: the digest arrives on Monday
+    #: morning for whoever reads it, not for whoever configured the server. The
+    #: cycle reuses PLANNER_INTERVAL_SECONDS, so it has no period of its own.
+    digest_weekday: int = Field(default=1, ge=1, le=7)
+    digest_hour: int = Field(default=9, ge=0, le=23)
+    digest_batch_size: int = Field(default=100, ge=1)
+
     use_fake_bot: bool = False
     admin_user_ids: str = ""
 
