@@ -1,47 +1,27 @@
-Builds on the v12 contract PR (#26), which is already in `main`.
+Contract only. The slice that uses it is a separate PR, stacked on this branch.
 
-Closes the four holes that made the bot unusable for anyone opening it for the first time. All four hit the same person, and none of them belonged to a roadmap slice.
+`tech.md` §9 promised the main menu a reply keyboard and no slice ever built one: `grep -rn ReplyKeyboardMarkup app/` returns nothing. The product answers only to eight typed words, which asks a new user to remember what §25 had just admitted they cannot be asked to remember. The Telegram command menu sits behind a button and lists commands; a permanent keyboard shows actions.
 
-## What lands
+## What §26 fixes
 
-- **`/help`** — one screen: what the bot does, every command with its description, and how Готово / Отложить / Пропустить feed the statistics. 438 characters in ru, 498 in en.
-- **The Telegram command menu**, published at startup for both languages. `bot.commands_published commands=8 languages=2` now appears in the log on boot; before this PR `grep -rn set_my_commands app/` returned nothing and typing `/` in the chat offered the user nothing.
-- **An answer to unrecognised text** instead of silence.
-- **Onboarding ends on help**, not on the settings screen a new user has just finished with.
+- **§26.1** The keyboard is the third consumer of `app/bot/commands.py`. It takes the whole list with no exemptions of its own: `MENU_EXEMPT_COMMANDS` keeps `/start` out of the Telegram menu, which draws its own Start button, and a keyboard has nothing there to duplicate. Eight commands, eight buttons, two to a row, same order.
+- **§26.2** Captions are their own keys, not the `cmd.*` descriptions. A menu row is wide and a button is narrow, and «Таймзона, язык, тихие часы» does not fit on one. This is not a second set of descriptions: the two key families have different jobs and are bound by the command name, which the contract test checks.
+- **§26.3** A caption is matched across **every** locale. A reply keyboard is drawn in the chat once and stays; somebody who switched language is pressing captions of the language they left. Hence the invariant that captions are unique in the union of locales.
+- **§26.4** The menu router is registered **first**, and that is a correctness condition. A press arrives as an ordinary text message, indistinguishable from an answer to the wizard, so navigation has to beat free text. It is the mirror of §25.4: the catch-all is last because it must beat nobody.
+- **§26.5** Navigation drops the wizard, for both forms of it. Typed commands were never winning against a form step at all — `/list` on the title step names a reminder `/list` — and the keyboard made that visible rather than causing it.
+- **§26.6** `is_persistent` is required and `one_time_keyboard` refused: a menu that hides after the first press stops being permanent exactly when somebody starts using it.
 
-## One list, or they drift
+## What ships with it
 
-The menu and the help table are one fact shown twice, so both are built from `app/bot/commands.py` and nothing else. The contract test welds that list to the real dispatcher: every advertised command has a registered handler, and every command handler reaches the menu. The one exception, `/start`, is a named constant — Telegram draws its own Start button — so the test checks the exemption rather than stepping around it.
+- `btn.menu_*`, eight captions in both locales. Plain text, no emoji, like the other sixty `btn.*` strings.
+- `app/bot/commands.py` gains `MENU_BUTTONS`, `ALL_COMMAND_NAMES` and `main_menu_labels()`. Still no rendering in it.
+- `app/bot/keyboards/menu.py` — `main_menu_kb(lang)`.
+- `app/bot/filters.py` — `NOT_A_COMMAND`, built once from `ALL_COMMAND_NAMES`, so a ninth command is kept out of every free-text step by adding it in one place.
 
-`cmd.*` serves both consumers: the menu entry and the help row are the same string, and `help.screen` deliberately carries no placeholders so a ninth command edits the command list alone.
-
-## The catch-all, and why its position is a safety condition
-
-`handle_unknown` is an unfiltered `@router.message()`, which is exactly the kind of handler that can eat everything. It is safe because of where it is registered, not because of what it matches: every text handler in the product is state-filtered and lives in a router above it, so the wizard's input reaches the wizard first.
-
-That is one line away from breaking silently and catastrophically — a reminder could never be created again — so it has its own test: pick a category, type a title, and assert the bot moves on to the schedule question rather than answering "Не понял".
-
-While wiring the router I found the same hazard already latent: `tests/e2e/conftest.py` kept its **own copy** of the handler-module list for detaching router singletons, and a module missing from that copy breaks every dispatcher build after the first. Rather than adding `help` to the copy, I moved the list into `app/bot/main.py` as `HANDLER_MODULES` and had both `build_dispatcher` and the fixture read it. **This is a change you did not ask for** — it removes the duplication that would have caused exactly this bug again.
-
-## One behaviour change to an existing test
-
-`test_a_picked_zone_finishes_onboarding_and_opens_settings` asserted `"Настройки" in last_text`. It is now `..._opens_the_help_screen` and asserts `/new` is offered. The old assertion pinned the behaviour §25.5 deliberately changes; it is renamed rather than deleted so the diff shows the swap.
+`OutgoingMessage` is deliberately untouched: the keyboard belongs to the `bot` process, and the worker sends reminders rather than menus.
 
 ## Tests
 
-| type | what it pins |
-|---|---|
-| contract | menu passes `FakeBotGateway` validation in both locales; list welded to the real dispatcher in both directions; a leading slash, upper case, an over-long name, an empty or 257-char description, or a duplicate command each fail the fake first; help fits one message and names every command |
-| idempotency | publishing the menu twice leaves one menu per language |
-| error path | a refused menu does not stop the bot from booting, and one language failing does not cost the other its menu |
-| end to end | `/help` answers; unknown text answers; a step waiting only for a button still answers text; **the catch-all never steals the wizard's input**; no command is ever treated as unknown text |
+Nothing new here. The existing catalogue contract covers the eight captions the moment they exist (both locales, matching placeholders, non-empty), and the tests that weld the keyboard to the dispatcher ride with the slice that registers it.
 
-No property-based test, and that is deliberate rather than an omission: §10.4 requires one for pure domain logic, and this slice adds no pure function to `app/domain` — it is a list, a renderer and routing. A Hypothesis test over string concatenation would mirror the code, which §10 forbids.
-
-1852 passed, coverage 97%.
-
-## Verified live
-
-`docker compose up -d bot` logs `bot.commands_published commands=8 languages=2`. The help screen was rendered through the same code path that reaches Telegram and read in both locales.
-
-The menu and `/help` inside real Telegram still need a real `BOT_TOKEN`: under `USE_FAKE_BOT=true` the process never enters polling (`app/bot/main.py`). That is a limit of the stand, not of the slice, and the end-to-end tests drive the same path through `FakeTelegramSession`.
+`ruff check`, `ruff format --check`, `mypy app`, `pytest` green: 1876 passed.

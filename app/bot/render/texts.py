@@ -551,6 +551,18 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
     "btn.digest_on": {"ru": "Включить дайджест", "en": "Turn the digest on"},
     "btn.digest_off": {"ru": "Выключить дайджест", "en": "Turn the digest off"},
     "btn.stats_all": {"ru": "‹ Ко всем категориям", "en": "‹ To all categories"},
+    # Captions of the permanent main menu (tech.md 26.2). They are short
+    # where cmd.* is explanatory: a menu row is wide and a button is narrow.
+    # They carry no placeholders, because the label is matched back to its
+    # command by comparing strings (tech.md 26.7).
+    "btn.menu_new": {"ru": "Новое дело", "en": "New reminder"},
+    "btn.menu_list": {"ru": "Мои дела", "en": "My reminders"},
+    "btn.menu_today": {"ru": "Сегодня", "en": "Today"},
+    "btn.menu_categories": {"ru": "Категории", "en": "Categories"},
+    "btn.menu_stats": {"ru": "Статистика", "en": "Statistics"},
+    "btn.menu_shared": {"ru": "Общие", "en": "Shared"},
+    "btn.menu_settings": {"ru": "Настройки", "en": "Settings"},
+    "btn.menu_help": {"ru": "Помощь", "en": "Help"},
     "status.active": {"ru": "активно", "en": "active"},
     "status.paused": {"ru": "на паузе", "en": "paused"},
     "status.archived": {"ru": "в архиве", "en": "archived"},
