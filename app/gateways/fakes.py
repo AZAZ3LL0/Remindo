@@ -5,7 +5,9 @@ message that Telegram would reject or a keyboard the callback contract does not
 recognise.
 """
 
+import re
 from collections import deque
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import count
 
@@ -14,10 +16,16 @@ from aiogram.types import InlineKeyboardMarkup
 from app.bot.callbacks import KNOWN_CALLBACK_FACTORIES, NOOP_CALLBACK
 from app.core.logging import get_logger
 from app.domain.errors import ContractViolation
-from app.gateways.bot_gateway import MessageRef, OutgoingMessage
+from app.gateways.bot_gateway import BotCommandSpec, MessageRef, OutgoingMessage
 
 MAX_TEXT_LENGTH = 4096
 MAX_CALLBACK_BYTES = 64
+
+#: Telegram's own limits on the command menu (tech.md 25.2), mirrored so the
+#: fake refuses a menu the real transport would.
+COMMAND_PATTERN = re.compile(r"^[a-z0-9_]{1,32}$")
+COMMAND_DESCRIPTION_MAX_LENGTH = 256
+COMMANDS_MAX = 100
 
 _log = get_logger(__name__)
 
@@ -73,6 +81,29 @@ def validate_keyboard(keyboard: InlineKeyboardMarkup | None) -> None:
                 raise ContractViolation(f"callback_data has no known factory: {data}")
 
 
+def validate_commands(commands: Sequence[BotCommandSpec]) -> None:
+    """Enforce the command menu contract. Raises ContractViolation on a breach.
+
+    Without this the menu would be the one part of the bot that USE_FAKE_BOT
+    cannot check, and the first thing to break for a live user.
+    """
+    if len(commands) > COMMANDS_MAX:
+        raise ContractViolation(f"command menu exceeds {COMMANDS_MAX} entries")
+    seen: set[str] = set()
+    for spec in commands:
+        if not COMMAND_PATTERN.match(spec.command):
+            raise ContractViolation(f"command is not a valid Telegram command: {spec.command!r}")
+        if spec.command in seen:
+            raise ContractViolation(f"command listed twice: {spec.command}")
+        seen.add(spec.command)
+        if not spec.description.strip():
+            raise ContractViolation(f"command {spec.command} has no description")
+        if len(spec.description) > COMMAND_DESCRIPTION_MAX_LENGTH:
+            raise ContractViolation(
+                f"description of {spec.command} exceeds {COMMAND_DESCRIPTION_MAX_LENGTH}"
+            )
+
+
 def _unpacks(data: str) -> bool:
     for factory in KNOWN_CALLBACK_FACTORIES:
         try:
@@ -89,6 +120,9 @@ class FakeBotGateway:
     def __init__(self) -> None:
         self.sent: list[OutgoingMessage] = []
         self.edited: list[tuple[MessageRef, str, InlineKeyboardMarkup | None]] = []
+        #: Last menu published per language. Publishing twice leaves one entry,
+        #: because Telegram's own call replaces rather than appends.
+        self.commands: dict[str, tuple[BotCommandSpec, ...]] = {}
         self._failures: deque[BaseException] = deque()
         self._message_ids = count(1000)
 
@@ -99,6 +133,7 @@ class FakeBotGateway:
     def reset(self) -> None:
         self.sent.clear()
         self.edited.clear()
+        self.commands.clear()
         self._failures.clear()
 
     async def send(self, message: OutgoingMessage) -> MessageRef:
@@ -114,3 +149,10 @@ class FakeBotGateway:
         if self._failures:
             raise self._failures.popleft()
         self.edited.append((ref, text, keyboard))
+
+    async def set_commands(self, commands: Sequence[BotCommandSpec], lang: str) -> None:
+        validate_commands(commands)
+        if self._failures:
+            raise self._failures.popleft()
+        self.commands[lang] = tuple(commands)
+        _log.debug("fake_bot.set_commands", lang=lang, count=len(commands))

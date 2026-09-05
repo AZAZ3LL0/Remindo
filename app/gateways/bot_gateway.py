@@ -1,6 +1,7 @@
 """Everything external sits behind this protocol."""
 
 import asyncio
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -13,7 +14,7 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
     TelegramServerError,
 )
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import BotCommand, InlineKeyboardMarkup
 
 from app.domain.contracts import ErrorClass
 
@@ -32,12 +33,27 @@ class MessageRef:
     message_id: int
 
 
+@dataclass(frozen=True, slots=True)
+class BotCommandSpec:
+    """One entry of the Telegram command menu (tech.md 25.2).
+
+    `command` carries no leading slash, the way Telegram accepts it. The slash
+    is drawn by the help renderer: storing it here would keep one value in two
+    shapes.
+    """
+
+    command: str
+    description: str
+
+
 class BotGateway(Protocol):
     async def send(self, message: OutgoingMessage) -> MessageRef: ...
 
     async def edit(
         self, ref: MessageRef, text: str, keyboard: InlineKeyboardMarkup | None
     ) -> None: ...
+
+    async def set_commands(self, commands: Sequence[BotCommandSpec], lang: str) -> None: ...
 
 
 def classify_error(error: BaseException) -> ErrorClass:
@@ -84,4 +100,10 @@ class AiogramBotGateway:
             message_id=ref.message_id,
             text=text,
             reply_markup=keyboard,
+        )
+
+    async def set_commands(self, commands: Sequence[BotCommandSpec], lang: str) -> None:
+        await self._bot.set_my_commands(
+            [BotCommand(command=spec.command, description=spec.description) for spec in commands],
+            language_code=lang,
         )
