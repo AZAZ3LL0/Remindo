@@ -19,6 +19,7 @@ from app.domain.contracts import (
     DeliveryStatus,
     OccurrenceStatus,
 )
+from app.domain.quiet_hours import QuietHours
 from app.domain.reactions import (
     USER_ACTIONS,
     RejectReason,
@@ -27,7 +28,6 @@ from app.domain.reactions import (
     postpone,
     roll_up_occurrence,
 )
-from app.domain.quiet_hours import QuietHours
 from tests.unit.strategies import quiet_hours, silent_hours, utc_moments
 
 CASES = settings(max_examples=200, deadline=None)
@@ -56,9 +56,7 @@ FOREVER = timedelta(days=365)
 
 
 def decide(kind, now, minutes, *, quiet=NO_SILENCE, expires_at=None):
-    return decide_reaction(
-        kind, now, minutes, quiet=quiet, expires_at=expires_at or now + FOREVER
-    )
+    return decide_reaction(kind, now, minutes, quiet=quiet, expires_at=expires_at or now + FOREVER)
 
 
 def check(kind, now, *, delivery_status, occurrence_status, expires_at, snoozed_until=None):
@@ -210,9 +208,7 @@ def test_a_snooze_never_lands_inside_the_silence_it_can_escape(now, minutes, qui
 
 @CASES
 @given(now=utc_moments, minutes=snooze_minutes, quiet=quiet_hours, ahead=horizons)
-def test_silence_that_outlasts_the_occurrence_never_swallows_the_snooze(
-    now, minutes, quiet, ahead
-):
+def test_silence_that_outlasts_the_occurrence_never_swallows_the_snooze(now, minutes, quiet, ahead):
     """Late beats lost: a reminder is postponed, never dropped (tech.md 1.1)."""
     expires_at = now + timedelta(minutes=minutes) + ahead
     moment = postpone(now, minutes, quiet=quiet, expires_at=expires_at)
