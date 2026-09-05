@@ -1373,8 +1373,11 @@ class EditCb(CallbackData, prefix="e"):
 | `snooze` | `1`..`1440` \| `man` | шаг «отложить» |
 | `repeat` | `5`..`1440` \| `off` \| `man` | автоповтор либо его выключение |
 | `note` | `clear` | снять заметку |
+| `filter` | `0`..`<id>` | открыть выбор фильтра, отметив действующий |
 
 Зарезервированные значения: `man` для шагов `snooze` и `repeat`, `off` для шага `repeat`, `clear` для шага `note`. Ни один пресет с ними не совпадает, это держит контрактный тест.
+
+Шаг `filter` живёт здесь, а не в `ListCb` §21.1: открыть пикер — команда, а не страница, и класть команду в поле `page` числом-меткой значило бы перегружать атом ровно так, как запрещает §6. `value` при этом несёт действующий фильтр, потому что пикер обязан отметить, что выбрано сейчас.
 
 Категория при редактировании выбирается общим `category_picker_kb` §9 с `CatCb(action="pick")`: вопрос дословно тот же, что в мастере, и второго пикера на него не заводится. Экраны различает состояние FSM — `ReminderWizard.category` у мастера, `ReminderEdit.category` у редактирования, — а не фабрика.
 
@@ -1427,9 +1430,10 @@ REPEAT_MAX_MINUTES: Final = 1440
 | `reminder_edit_kb(reminder_id, lang)` | шесть полей §21.4 + Назад на карточку |
 | `snooze_picker_kb(lang)` | пресеты минут + ручной ввод + Отмена |
 | `repeat_picker_kb(lang)` | пресеты минут + «Выключить» + ручной ввод + Отмена |
+| `note_kb(lang)` | «Очистить» + Отмена |
 | `today_kb(page, total_pages, lang)` | навигация `paginated_kb` §9 без строк |
 
-Первая и последняя собираются поверх `paginated_kb`, а не вместо неё, ровно как `category_list_kb` §17.4.
+`reminder_list_kb` и `today_kb` собираются поверх `paginated_kb`, а не вместо неё, ровно как `category_list_kb` §17.4. `note_kb` нужна отдельно, потому что пустое сообщение в Telegram не отправить: снять заметку можно только кнопкой.
 
 `reminder_card_kb` показывает ровно одну кнопку из пары Пауза/Возобновить, ту, которая меняет состояние. Кнопка, не меняющая ничего, врёт о состоянии, а карточка — единственное место, где пользователь это состояние читает. Она же несёт `category_id`, чтобы «Назад» вернуло в тот отфильтрованный список, из которого пользователь пришёл.
 
@@ -1439,11 +1443,17 @@ REPEAT_MAX_MINUTES: Final = 1440
 
 ### 21.7 Ключи текстов (`bot/render/texts.py`)
 
-`list.filter`, `list.filter_all`, `list.paused_mark`, `reminder.note`, `reminder.schedule`, `reminder.paused`, `reminder.resumed`, `reminder.confirm_delete`, `reminder.deleted`, `reminder.archived_readonly`, `edit.menu`, `edit.ask_title`, `edit.ask_note`, `edit.ask_category`, `edit.ask_snooze`, `edit.ask_repeat`, `edit.pick_kind`, `edit.saved`, `edit.snooze_invalid`, `edit.repeat_invalid`, `edit.repeat_off`, `edit.cancelled`, `today.title`, `today.empty`, `today.item`, `today.mark_pending`, `today.mark_done`, `today.mark_skipped`, `today.mark_missed`, `btn.filter`, `btn.all_categories`, `btn.pause`, `btn.resume`, `btn.edit`, `btn.delete`, `btn.to_list`, `btn.edit_title`, `btn.edit_note`, `btn.edit_category`, `btn.edit_schedule`, `btn.edit_snooze`, `btn.edit_repeat`, `btn.repeat_off`, `btn.note_clear`.
+`list.filter`, `list.filter_all`, `list.paused_mark`, `schedule.once`, `schedule.daily`, `schedule.weekly`, `schedule.monthly`, `schedule.interval`, `reminder.note`, `reminder.schedule`, `reminder.repeat_on`, `reminder.repeat_off`, `reminder.paused`, `reminder.resumed`, `reminder.confirm_delete`, `reminder.deleted`, `reminder.archived_readonly`, `edit.menu`, `edit.ask_title`, `edit.ask_note`, `edit.ask_category`, `edit.ask_snooze`, `edit.ask_repeat`, `edit.pick_kind`, `edit.saved`, `edit.snooze_invalid`, `edit.repeat_invalid`, `edit.repeat_off`, `edit.cancelled`, `today.title`, `today.empty`, `today.item`, `today.mark_pending`, `today.mark_done`, `today.mark_skipped`, `today.mark_missed`, `btn.filter`, `btn.all_categories`, `btn.pause`, `btn.resume`, `btn.edit`, `btn.delete`, `btn.to_list`, `btn.edit_title`, `btn.edit_note`, `btn.edit_category`, `btn.edit_schedule`, `btn.edit_snooze`, `btn.edit_repeat`, `btn.repeat_off`, `btn.note_clear`.
 
 `reminder.card` из `v1` получает два плейсхолдера, `{schedule}` и `{note}`: карточка — экран, на котором пользователь решает, что менять, а расписания и заметки на ней не было видно. Ключ и его имя не меняются, второй карточки не заводится.
 
+`list.item` из `v1` получает плейсхолдер `{mark}`: список после S9 показывает и приостановленные напоминания, и строка, не отличающая их от активных, врёт о состоянии так же, как врала бы лишняя кнопка на карточке §21.6.
+
+Ключи `schedule.*` описывают расписание одной строкой для карточки. Подтверждения мастера `wizard.confirm_*` §18.5 на эту роль не годятся: они задают вопрос, а карточка сообщает факт.
+
 У каждого ключа обязательны обе локали и совпадающий набор плейсхолдеров — держится контрактным тестом.
+
+`render_reminder_card` и `render_reminder_list` §9 обновляются вместе с ключами: примитивы и строки — общие файлы §11.2 и живут в одном PR ядра. `render_schedule_summary(schedule, lang)` появляется рядом с карточкой в `bot/render/reminder.py`.
 
 ### 21.8 Модули слайса
 
