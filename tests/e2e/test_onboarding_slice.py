@@ -76,16 +76,18 @@ async def test_manual_entry_is_offered_and_accepted(session_factory, feed, teleg
     assert (await fetch_user(session_factory)).timezone == "Australia/Lord_Howe"
 
 
-async def test_a_picked_zone_finishes_onboarding_and_opens_settings(
+async def test_a_picked_zone_finishes_onboarding_and_opens_the_help_screen(
     session_factory, feed, telegram
 ):
+    """Somebody who just named their timezone is done with settings and has not
+    yet seen the product, so onboarding ends on help (tech.md 25.5)."""
     await feed.message("/start")
     await feed.press(SetCb(field="tz", value="Asia/Yekaterinburg").pack())
 
     user = await fetch_user(session_factory)
     assert user.timezone == "Asia/Yekaterinburg"
     assert user.onboarded_at is not None
-    assert "Настройки" in last_text(telegram)
+    assert "/new" in last_text(telegram)
 
 
 async def test_a_second_start_greets_instead_of_asking_again(session_factory, feed, telegram):
