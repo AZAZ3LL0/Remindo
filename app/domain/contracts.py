@@ -110,6 +110,16 @@ TERMINAL_OCCURRENCE_STATUSES: Final = frozenset(
 REMINDER_TITLE_MAX_LENGTH: Final = 120
 REMINDER_NOTE_MAX_LENGTH: Final = 1000
 
+#: Snooze step and automatic repeat, both in minutes (tech.md 21.5). A day is
+#: the ceiling for the same reason it is for an interval (tech.md 19.2): the
+#: values live in SMALLINT, and a step longer than a day is a wrong screen. The
+#: repeat floor matches the interval floor: a repeat more frequent than a sweep
+#: never happens anyway.
+SNOOZE_MIN_MINUTES: Final = 1
+SNOOZE_MAX_MINUTES: Final = 1440
+REPEAT_MIN_MINUTES: Final = 5
+REPEAT_MAX_MINUTES: Final = 1440
+
 #: How far ahead the creation wizard accepts a date and looks for the first
 #: firing moment (tech.md 18.2). A year with room for a leap day: anything
 #: further out is almost always a typo, and the search stays bounded.
