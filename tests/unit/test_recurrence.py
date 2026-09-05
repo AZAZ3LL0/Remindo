@@ -78,6 +78,13 @@ def test_is_deterministic(schedule, tz, window, limit):
     assert first == second
 
 
+#: A ceiling the split can never reach. Six days hold at most 1728 moments,
+#: the tightest schedule being a five-minute interval across the whole day. A
+#: limit that binds would truncate the whole range while the two halves keep
+#: everything, and the concatenation below would be comparing different things.
+SPLIT_LIMIT = 2000
+
+
 @SLOW
 @given(schedule=schedules, tz=timezones, window=ranges(max_days=6))
 def test_range_splits_without_gaps_or_duplicates(schedule, tz, window):
@@ -86,10 +93,13 @@ def test_range_splits_without_gaps_or_duplicates(schedule, tz, window):
     middle = after + (until - after) / 2
     middle = middle.replace(second=0, microsecond=0)
 
-    whole = next_occurrences(schedule, tz, after=after, until=until, limit=1000)
-    first = next_occurrences(schedule, tz, after=after, until=middle, limit=1000)
-    second = next_occurrences(schedule, tz, after=middle, until=until, limit=1000)
+    whole = next_occurrences(schedule, tz, after=after, until=until, limit=SPLIT_LIMIT)
+    first = next_occurrences(schedule, tz, after=after, until=middle, limit=SPLIT_LIMIT)
+    second = next_occurrences(schedule, tz, after=middle, until=until, limit=SPLIT_LIMIT)
 
+    # The invariant is about the range, not about the ceiling: a truncated list
+    # would make the assertion below pass or fail for the wrong reason.
+    assert len(whole) < SPLIT_LIMIT
     assert whole == first + second
 
 
