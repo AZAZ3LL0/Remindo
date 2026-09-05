@@ -16,11 +16,18 @@ def confirm_kb(
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if action == "delete":
+        # Cancelling goes back where it came from. Deleting has a card to
+        # return to, unlike creation and category archiving (tech.md 21.6).
         builder.button(
             text=T("btn.yes", lang),
             callback_data=RemCb(reminder_id=entity_id, action="confirm_delete"),
         )
-    elif action == "archive":
+        builder.button(
+            text=T("btn.cancel", lang), callback_data=RemCb(reminder_id=entity_id, action="open")
+        )
+        builder.adjust(2)
+        return builder.as_markup()
+    if action == "archive":
         builder.button(
             text=T("btn.yes", lang),
             callback_data=CatCb(category_id=entity_id, action="confirm_archive"),

@@ -4,7 +4,10 @@ import pytest
 
 from app.bot.callbacks import (
     KNOWN_CALLBACK_FACTORIES,
+    NO_CATEGORY_FILTER,
     CatCb,
+    EditCb,
+    ListCb,
     PageCb,
     ReactCb,
     RemCb,
@@ -20,6 +23,8 @@ MAXIMAL = [
     RemCb(reminder_id=2**63 - 1, action="confirm_delete"),
     CatCb(category_id=2**63 - 1, action="archive"),
     PageCb(scope="today", page=999_999),
+    ListCb(category_id=2**63 - 1, page=999_999),
+    EditCb(reminder_id=2**63 - 1, field="schedule"),
     WizCb(step="x" * 12, value="y" * 24),
     SetCb(field="quiet", value="z" * 32),
 ]
@@ -42,6 +47,8 @@ def test_prefixes_are_frozen():
         "m",
         "c",
         "p",
+        "l",
+        "e",
         "w",
         "s",
     ]
@@ -50,6 +57,12 @@ def test_prefixes_are_frozen():
 def test_prefixes_are_unique():
     prefixes = [factory.__prefix__ for factory in KNOWN_CALLBACK_FACTORIES]
     assert len(set(prefixes)) == len(prefixes)
+
+
+def test_no_filter_can_never_be_a_real_category():
+    """`0` means "every category" because BIGSERIAL never hands it out."""
+    assert NO_CATEGORY_FILTER == 0
+    assert ListCb.unpack(ListCb(category_id=NO_CATEGORY_FILTER, page=0).pack()).category_id == 0
 
 
 def test_reaction_targets_a_delivery_not_an_occurrence():

@@ -272,17 +272,96 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
         "ru": "{emoji} <b>{title}</b>\n{time}",
         "en": "{emoji} <b>{title}</b>\n{time}",
     },
+    # The card is where the user decides what to change, so it spells out the
+    # schedule and the note as well (tech.md 21.7).
     "reminder.card": {
-        "ru": "{emoji} <b>{title}</b>\nСтатус: {status}\nБлижайшее: {next_fire}",
-        "en": "{emoji} <b>{title}</b>\nStatus: {status}\nNext: {next_fire}",
+        "ru": (
+            "{emoji} <b>{title}</b>\nСтатус: {status}\n"
+            "Расписание: {schedule}\nБлижайшее: {next_fire}{note}"
+        ),
+        "en": (
+            "{emoji} <b>{title}</b>\nStatus: {status}\n"
+            "Schedule: {schedule}\nNext: {next_fire}{note}"
+        ),
+    },
+    "reminder.note": {"ru": "\nЗаметка: {note}", "en": "\nNote: {note}"},
+    "reminder.schedule": {
+        "ru": "{summary}, отложить на {snooze} мин, повтор: {repeat}",
+        "en": "{summary}, snooze {snooze} min, repeat: {repeat}",
+    },
+    # One line per schedule kind, for the card. The wizard's confirmations
+    # cannot be reused: they ask a question, the card states a fact.
+    "schedule.once": {"ru": "один раз, {at}", "en": "once, {at}"},
+    "schedule.daily": {"ru": "каждый день в {times}", "en": "every day at {times}"},
+    "schedule.weekly": {"ru": "{weekdays} в {times}", "en": "{weekdays} at {times}"},
+    "schedule.monthly": {
+        "ru": "{days} числа в {times}, короткий месяц: {missing}",
+        "en": "on the {days} at {times}, short month: {missing}",
+    },
+    "schedule.interval": {
+        "ru": "каждые {every_minutes} мин, {window_start}-{window_end}",
+        "en": "every {every_minutes} min, {window_start}-{window_end}",
+    },
+    "reminder.repeat_off": {"ru": "выключен", "en": "off"},
+    "reminder.repeat_on": {"ru": "через {minutes} мин", "en": "after {minutes} min"},
+    "reminder.paused": {"ru": "Напоминание на паузе.", "en": "Reminder paused."},
+    "reminder.resumed": {"ru": "Напоминание снова активно.", "en": "Reminder is active again."},
+    "reminder.confirm_delete": {
+        "ru": "Удалить «{title}» вместе со всей историей?",
+        "en": "Delete “{title}” together with its whole history?",
+    },
+    "reminder.deleted": {"ru": "Напоминание удалено.", "en": "Reminder deleted."},
+    "reminder.archived_readonly": {
+        "ru": "Напоминание в архиве, его уже не изменить.",
+        "en": "The reminder is archived and cannot be changed.",
     },
     "reminder.no_next_fire": {"ru": "не запланировано", "en": "not scheduled"},
     "list.title": {"ru": "Напоминания ({total})", "en": "Reminders ({total})"},
     "list.empty": {"ru": "Напоминаний пока нет.", "en": "No reminders yet."},
     "list.item": {
-        "ru": "{index}. {emoji} {title} — {next_fire}",
-        "en": "{index}. {emoji} {title} — {next_fire}",
+        "ru": "{index}. {mark}{emoji} {title} — {next_fire}",
+        "en": "{index}. {mark}{emoji} {title} — {next_fire}",
     },
+    "list.paused_mark": {"ru": "⏸ ", "en": "⏸ "},
+    "list.filter": {"ru": "Фильтр: {title}", "en": "Filter: {title}"},
+    "list.filter_all": {"ru": "все категории", "en": "all categories"},
+    "edit.menu": {"ru": "Что меняем?", "en": "What are we changing?"},
+    "edit.ask_title": {"ru": "Пришли новое название.", "en": "Send the new title."},
+    "edit.ask_note": {
+        "ru": "Пришли заметку или очисти её кнопкой.",
+        "en": "Send a note, or clear it with the button.",
+    },
+    "edit.ask_category": {"ru": "Выбери новую категорию.", "en": "Pick the new category."},
+    "edit.ask_snooze": {
+        "ru": "На сколько минут откладывать?",
+        "en": "How many minutes should a snooze last?",
+    },
+    "edit.ask_repeat": {
+        "ru": "Через сколько минут повторять без реакции?",
+        "en": "After how many minutes should an unanswered reminder repeat?",
+    },
+    "edit.pick_kind": {"ru": "Выбери новое расписание.", "en": "Pick the new schedule."},
+    "edit.saved": {"ru": "Изменения сохранены.", "en": "Changes saved."},
+    "edit.snooze_invalid": {
+        "ru": "Шаг должен быть числом минут от {minimum} до {maximum}.",
+        "en": "The step must be a number of minutes between {minimum} and {maximum}.",
+    },
+    "edit.repeat_invalid": {
+        "ru": "Повтор должен быть числом минут от {minimum} до {maximum}.",
+        "en": "The repeat must be a number of minutes between {minimum} and {maximum}.",
+    },
+    "edit.repeat_off": {"ru": "Автоповтор выключен.", "en": "The automatic repeat is off."},
+    "edit.cancelled": {"ru": "Изменения отменены.", "en": "Changes cancelled."},
+    "today.title": {"ru": "Сегодня ({total})", "en": "Today ({total})"},
+    "today.empty": {"ru": "На сегодня ничего нет.", "en": "Nothing for today."},
+    "today.item": {
+        "ru": "{time} {mark} {emoji} {title}",
+        "en": "{time} {mark} {emoji} {title}",
+    },
+    "today.mark_pending": {"ru": "•", "en": "•"},
+    "today.mark_done": {"ru": "✓", "en": "✓"},
+    "today.mark_skipped": {"ru": "—", "en": "—"},
+    "today.mark_missed": {"ru": "×", "en": "×"},
     "stats.title": {"ru": "Статистика", "en": "Statistics"},
     "stats.body": {
         "ru": (
@@ -323,6 +402,21 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
     "btn.back": {"ru": "‹ Назад", "en": "‹ Back"},
     "btn.rename": {"ru": "Переименовать", "en": "Rename"},
     "btn.archive": {"ru": "В архив", "en": "Archive"},
+    "btn.filter": {"ru": "Фильтр", "en": "Filter"},
+    "btn.all_categories": {"ru": "Все категории", "en": "All categories"},
+    "btn.pause": {"ru": "Пауза", "en": "Pause"},
+    "btn.resume": {"ru": "Возобновить", "en": "Resume"},
+    "btn.edit": {"ru": "Изменить", "en": "Edit"},
+    "btn.delete": {"ru": "Удалить", "en": "Delete"},
+    "btn.to_list": {"ru": "‹ К списку", "en": "‹ To the list"},
+    "btn.edit_title": {"ru": "Название", "en": "Title"},
+    "btn.edit_note": {"ru": "Заметка", "en": "Note"},
+    "btn.edit_category": {"ru": "Категория", "en": "Category"},
+    "btn.edit_schedule": {"ru": "Расписание", "en": "Schedule"},
+    "btn.edit_snooze": {"ru": "Отложить на", "en": "Snooze step"},
+    "btn.edit_repeat": {"ru": "Автоповтор", "en": "Auto repeat"},
+    "btn.repeat_off": {"ru": "Выключить", "en": "Turn off"},
+    "btn.note_clear": {"ru": "Очистить", "en": "Clear"},
     "btn.timezone": {"ru": "Таймзона", "en": "Timezone"},
     "btn.language": {"ru": "Язык", "en": "Language"},
     "btn.quiet": {"ru": "Тихие часы", "en": "Quiet hours"},
