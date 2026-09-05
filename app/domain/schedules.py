@@ -20,9 +20,16 @@ from pydantic import (
 
 from app.domain.contracts import ScheduleKind
 
-#: How many wall-clock times one schedule may carry (tech.md 5). Named so the
-#: wizard can refuse a thirteenth time with the same number the model enforces.
+#: Limits of tech.md 5, named so the wizard can refuse a value with the same
+#: number the model enforces instead of repeating the literal (tech.md 18.3, 19.2).
 TIMES_MAX_LENGTH: Final = 12
+WEEKDAYS_MAX_LENGTH: Final = 7
+MONTH_DAYS_MAX_LENGTH: Final = 31
+INTERVAL_MIN_MINUTES: Final = 5
+INTERVAL_MAX_MINUTES: Final = 1440
+
+#: Length of the callback atom carrying a day window, `HHMMHHMM` (tech.md 19.1).
+WINDOW_ATOM_LENGTH: Final = 8
 
 _HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -127,7 +134,7 @@ class OnceSchedule(_Base):
 
 class IntervalSchedule(_Base):
     kind: Literal[ScheduleKind.INTERVAL] = ScheduleKind.INTERVAL
-    every_minutes: Annotated[int, Field(ge=5, le=1440)]
+    every_minutes: Annotated[int, Field(ge=INTERVAL_MIN_MINUTES, le=INTERVAL_MAX_MINUTES)]
     window_start: LocalTime
     window_end: LocalTime
 
@@ -144,7 +151,10 @@ class DailySchedule(_WithTimes):
 
 class WeeklySchedule(_WithTimes):
     kind: Literal[ScheduleKind.WEEKLY] = ScheduleKind.WEEKLY
-    weekdays: Annotated[list[Annotated[int, Field(ge=1, le=7)]], Field(min_length=1, max_length=7)]
+    weekdays: Annotated[
+        list[Annotated[int, Field(ge=1, le=WEEKDAYS_MAX_LENGTH)]],
+        Field(min_length=1, max_length=WEEKDAYS_MAX_LENGTH),
+    ]
 
     @field_validator("weekdays", mode="after")
     @classmethod
@@ -154,7 +164,10 @@ class WeeklySchedule(_WithTimes):
 
 class MonthlySchedule(_WithTimes):
     kind: Literal[ScheduleKind.MONTHLY] = ScheduleKind.MONTHLY
-    days: Annotated[list[Annotated[int, Field(ge=1, le=31)]], Field(min_length=1, max_length=31)]
+    days: Annotated[
+        list[Annotated[int, Field(ge=1, le=MONTH_DAYS_MAX_LENGTH)]],
+        Field(min_length=1, max_length=MONTH_DAYS_MAX_LENGTH),
+    ]
     on_missing_day: Literal["last_day", "skip"] = "last_day"
 
     @field_validator("days", mode="after")

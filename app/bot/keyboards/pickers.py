@@ -5,22 +5,34 @@ from collections.abc import Sequence
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.bot.callbacks import CatCb, PageCb, WizCb, pack_wall_time
+from app.bot.callbacks import CatCb, PageCb, WizCb, pack_wall_time, pack_window
 from app.bot.render.texts import DEFAULT_LANG, WEEKDAY_LABELS, Lang, T
 from app.db.models import Category
+from app.domain.schedules import MONTH_DAYS_MAX_LENGTH
 
 CATEGORY_PAGE_SIZE = 8
 
 #: Interval presets in minutes, offered by the reminder wizard.
 INTERVAL_PRESETS: tuple[int, ...] = (30, 60, 90, 120, 180, 240)
 
-#: Day windows offered by the wizard as "HH:MM-HH:MM".
+#: Day windows offered by the wizard as "HH:MM-HH:MM". The last one spans the
+#: whole day: equal ends mean twenty-four hours (tech.md 5).
 WINDOW_PRESETS: tuple[tuple[str, str], ...] = (
     ("08:00", "22:00"),
     ("09:00", "21:00"),
     ("10:00", "18:00"),
     ("00:00", "00:00"),
 )
+
+#: Separator between the ends of a window in a button label, not in an atom.
+WINDOW_LABEL_SEPARATOR = "-"
+
+#: Days of the month laid out a week at a time, so the grid reads like a month.
+MONTH_DAY_COLUMNS = 7
+
+#: Marks a toggle that is already on. One mark across every picker, so a
+#: selected weekday and a selected time read the same way.
+SELECTED_MARK = "• "
 
 
 def category_picker_kb(
@@ -61,10 +73,29 @@ def window_picker_kb(lang: Lang = DEFAULT_LANG) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for start, end in WINDOW_PRESETS:
         builder.button(
-            text=f"{start}-{end}",
-            callback_data=WizCb(step="window", value=f"{start}{end}".replace(":", "")),
+            text=f"{start}{WINDOW_LABEL_SEPARATOR}{end}",
+            callback_data=WizCb(step="window", value=pack_window(start, end)),
         )
     builder.adjust(2)
+    return builder.as_markup()
+
+
+def monthday_picker_kb(selected: Sequence[int], lang: Lang = DEFAULT_LANG) -> InlineKeyboardMarkup:
+    """Toggles for the days of a month, 1 to 31.
+
+    Every month is offered in full: what happens in a month that is shorter is
+    the separate `on_missing_day` question (tech.md 5), not a missing button.
+    """
+    chosen = set(selected)
+    builder = InlineKeyboardBuilder()
+    for day in range(1, MONTH_DAYS_MAX_LENGTH + 1):
+        mark = SELECTED_MARK if day in chosen else ""
+        builder.button(text=f"{mark}{day}", callback_data=WizCb(step="mday", value=str(day)))
+    builder.adjust(*([MONTH_DAY_COLUMNS] * 5))
+
+    footer = InlineKeyboardBuilder()
+    footer.button(text=T("btn.ready", lang), callback_data=WizCb(step="mday", value="ok"))
+    builder.attach(footer)
     return builder.as_markup()
 
 
@@ -83,7 +114,7 @@ def weekday_picker_kb(selected: Sequence[int], lang: Lang = DEFAULT_LANG) -> Inl
     labels = WEEKDAY_LABELS.get(lang, WEEKDAY_LABELS[DEFAULT_LANG])
     builder = InlineKeyboardBuilder()
     for iso_day, label in enumerate(labels, start=1):
-        mark = "+" if iso_day in selected else ""
+        mark = SELECTED_MARK if iso_day in selected else ""
         builder.button(text=f"{mark}{label}", callback_data=WizCb(step="wday", value=str(iso_day)))
     builder.button(text=T("btn.ready", lang), callback_data=WizCb(step="wday", value="ok"))
     builder.adjust(4, 3, 1)

@@ -65,6 +65,22 @@ def unpack_wall_time(value: str) -> str:
     return f"{value[:2]}:{value[2:]}"
 
 
+def pack_window(start: str, end: str) -> str:
+    """A day window as one callback atom, `HHMMHHMM` (tech.md 19.1).
+
+    A window is one answer to one question, and its two ends are never picked
+    separately, so it travels as one atom rather than as two steps the way
+    quiet hours do (tech.md 16.3).
+    """
+    return f"{pack_wall_time(start)}{pack_wall_time(end)}"
+
+
+def unpack_window(value: str) -> tuple[str, str]:
+    """Inverse of `pack_window`. Validity is decided by the domain parser."""
+    half = len(value) // 2
+    return unpack_wall_time(value[:half]), unpack_wall_time(value[half:])
+
+
 #: Every factory the fake gateway accepts in an outgoing keyboard.
 KNOWN_CALLBACK_FACTORIES: tuple[type[CallbackData], ...] = (
     ReactCb,
