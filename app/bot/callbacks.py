@@ -82,9 +82,7 @@ class ShareCb(CallbackData, prefix="i"):
     """
 
     reminder_id: int
-    action: Literal[
-        "open", "invite", "revoke", "accept", "decline", "leave", "confirm_leave"
-    ]
+    action: Literal["open", "invite", "revoke", "accept", "decline", "leave", "confirm_leave"]
 
 
 class WizCb(CallbackData, prefix="w"):

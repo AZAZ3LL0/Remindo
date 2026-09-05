@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.bot.callbacks import NO_CATEGORY_FILTER, EditCb, ListCb, RemCb, WizCb
+from app.bot.callbacks import NO_CATEGORY_FILTER, EditCb, ListCb, RemCb, ShareCb, WizCb
 from app.bot.keyboards.pagination import PageItem, paginated_kb
 from app.bot.keyboards.pickers import SELECTED_MARK
 from app.bot.render.texts import DEFAULT_LANG, Lang, T
@@ -119,11 +119,16 @@ def reminder_card_kb(
     builder.button(
         text=T("btn.delete", lang), callback_data=RemCb(reminder_id=reminder_id, action="delete")
     )
+    # The access screen belongs to this reminder, so the card is the only way
+    # in (tech.md 22.7).
+    builder.button(
+        text=T("btn.share", lang), callback_data=ShareCb(reminder_id=reminder_id, action="open")
+    )
     # Back lands in the filtered list the user came from, not in a fresh one.
     builder.button(
         text=T("btn.to_list", lang), callback_data=ListCb(category_id=category_id, page=0)
     )
-    builder.adjust(2, 2)
+    builder.adjust(2, 2, 1)
     return builder.as_markup()
 
 
