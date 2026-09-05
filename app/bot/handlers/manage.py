@@ -35,6 +35,7 @@ from app.db.models import Reminder, User
 from app.db.repositories.categories import CategoriesRepository
 from app.db.repositories.occurrences import OccurrencesRepository
 from app.domain.contracts import (
+    REMINDER_NOTE_MAX_LENGTH,
     REPEAT_MAX_MINUTES,
     REPEAT_MIN_MINUTES,
     SNOOZE_MAX_MINUTES,
@@ -179,7 +180,13 @@ async def handle_title(
 async def handle_note(
     message: Message, user: User, session: AsyncSession, clock: Clock, state: FSMContext
 ) -> None:
-    await _apply(user, session, clock, state, note=message.text or "")
+    try:
+        await _apply(user, session, clock, state, note=message.text or "")
+    except ValidationError:
+        await message.answer(
+            T("edit.note_invalid", user.language, maximum=REMINDER_NOTE_MAX_LENGTH)
+        )
+        return
     await _saved(message, user, session, clock, state)
 
 
