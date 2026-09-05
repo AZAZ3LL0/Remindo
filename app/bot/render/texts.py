@@ -557,24 +557,12 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
     # Operator-facing, but strings sent to Telegram live here without
     # exception (tech.md 24.8): a second catalogue would drift from the first.
     "ops.alert_lag": {
-        "ru": (
-            "Доставка отстаёт: лаг {lag} мин, в очереди {queue}, "
-            "ошибок {errors}%."
-        ),
-        "en": (
-            "Delivery is falling behind: lag {lag} min, {queue} queued, "
-            "{errors}% failing."
-        ),
+        "ru": "Доставка отстаёт: лаг {lag} мин, в очереди {queue}, ошибок {errors}%.",
+        "en": "Delivery is falling behind: lag {lag} min, {queue} queued, {errors}% failing.",
     },
     "ops.alert_cleared": {
-        "ru": (
-            "Доставка догнала: лаг {lag} мин, в очереди {queue}, "
-            "ошибок {errors}%."
-        ),
-        "en": (
-            "Delivery caught up: lag {lag} min, {queue} queued, "
-            "{errors}% failing."
-        ),
+        "ru": "Доставка догнала: лаг {lag} мин, в очереди {queue}, ошибок {errors}%.",
+        "en": "Delivery caught up: lag {lag} min, {queue} queued, {errors}% failing.",
     },
     "error.generic": {
         "ru": "Что-то пошло не так. Попробуй ещё раз.",
