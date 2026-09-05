@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     bot_mode: Literal["polling", "webhook"] = "polling"
     webhook_base_url: str = ""
 
+    #: Without the leading `@`. Invitation links are built from it (tech.md
+    #: 22.9): `getMe` is a network call, and USE_FAKE_BOT has no network.
+    bot_username: str = "reminder_bot"
+
     database_url: str = "postgresql+asyncpg://app:app@db:5432/reminder"
 
     default_timezone: str = "Europe/Moscow"

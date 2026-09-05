@@ -120,6 +120,24 @@ SNOOZE_MAX_MINUTES: Final = 1440
 REPEAT_MIN_MINUTES: Final = 5
 REPEAT_MAX_MINUTES: Final = 1440
 
+#: Invitation limits (tech.md 22.4). The token is base64url of
+#: INVITE_TOKEN_BYTES without padding, so the two lengths are one fact stated
+#: twice and the contract test holds them together: drifting apart, they would
+#: produce a link the parser of tech.md 22.2 rejects.
+INVITE_TOKEN_BYTES: Final = 16
+INVITE_TOKEN_LENGTH: Final = 22
+INVITE_TTL_HOURS: Final = 72
+
+#: Watchers one reminder may carry, the owner not counted. Every acceptance
+#: multiplies deliveries by one more per occurrence, so a link leaked into a
+#: public chat would otherwise turn a reminder into a broadcast.
+REMINDER_WATCHERS_MAX: Final = 10
+
+#: Telegram's ceiling on a `?start=` payload, mirrored for the same reason the
+#: category limits are (tech.md 17.2): the domain must refuse a value before
+#: the transport truncates it silently.
+DEEP_LINK_MAX_LENGTH: Final = 64
+
 #: How far ahead the creation wizard accepts a date and looks for the first
 #: firing moment (tech.md 18.2). A year with room for a leap day: anything
 #: further out is almost always a typo, and the search stays bounded.
