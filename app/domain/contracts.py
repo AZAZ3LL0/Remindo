@@ -69,6 +69,7 @@ class JobId(StrEnum):
     PLANNER_MATERIALIZE = "planner.materialize"
     DISPATCHER_DELIVER = "dispatcher.deliver"
     REAPER_SWEEP = "reaper.sweep"
+    DIGEST_SEND = "digest.send"
 
 
 class ErrorClass(StrEnum):

@@ -40,9 +40,14 @@ class PageCb(CallbackData, prefix="p"):
     `shared` pages the reminders somebody else shared with the user. That list
     has no filter, so unlike the reminder list it needs no factory of its own
     (tech.md 22.3).
+
+    `stats` is unused for the same reason `rem` is: the statistics breakdown
+    carries a category slice and pages with `StatCb` (tech.md 23.3). It exists
+    so that `Scope` and this literal stay one list, and a screen that names its
+    scope without overriding the arrows cannot name one that does not exist.
     """
 
-    scope: Literal["rem", "cat", "today", "shared"]
+    scope: Literal["rem", "cat", "today", "shared", "stats"]
     page: int
 
 
@@ -85,6 +90,20 @@ class ShareCb(CallbackData, prefix="i"):
     action: Literal["open", "invite", "revoke", "accept", "decline", "leave", "confirm_leave"]
 
 
+class StatCb(CallbackData, prefix="t"):
+    """Statistics screen: which slice is on it, and which page of the
+    breakdown (tech.md 23.3).
+
+    The category rides next to the page for the reason it does in `ListCb`: a
+    page that loses the slice on the first arrow lies about what it shows.
+    `category_id = 0` is the whole picture, the same `NO_CATEGORY_FILTER` the
+    reminder list uses.
+    """
+
+    category_id: int
+    page: int
+
+
 class WizCb(CallbackData, prefix="w"):
     step: str  # <= 12 characters
     value: str  # <= 24 characters
@@ -97,7 +116,7 @@ class SetCb(CallbackData, prefix="s"):
     or a quiet-hours command. It is never a separator-packed pair.
     """
 
-    field: Literal["menu", "tz", "lang", "quiet"]
+    field: Literal["menu", "tz", "lang", "quiet", "digest"]
     value: str  # <= 32 characters
 
 
@@ -140,11 +159,13 @@ KNOWN_CALLBACK_FACTORIES: tuple[type[CallbackData], ...] = (
     ListCb,
     EditCb,
     ShareCb,
+    StatCb,
     WizCb,
     SetCb,
 )
 
-#: `ListCb.category_id` meaning "every category" (tech.md 21.1).
+#: `ListCb.category_id` and `StatCb.category_id` meaning "every category"
+#: (tech.md 21.1, 23.3).
 NO_CATEGORY_FILTER = 0
 
 #: Buttons that carry no action, e.g. the page counter in a paginator.

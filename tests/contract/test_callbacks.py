@@ -13,6 +13,7 @@ from app.bot.callbacks import (
     RemCb,
     SetCb,
     ShareCb,
+    StatCb,
     WizCb,
 )
 
@@ -27,8 +28,9 @@ MAXIMAL = [
     ListCb(category_id=2**63 - 1, page=999_999),
     EditCb(reminder_id=2**63 - 1, field="schedule"),
     ShareCb(reminder_id=2**63 - 1, action="confirm_leave"),
+    StatCb(category_id=2**63 - 1, page=999_999),
     WizCb(step="x" * 12, value="y" * 24),
-    SetCb(field="quiet", value="z" * 32),
+    SetCb(field="digest", value="z" * 32),
 ]
 
 
@@ -52,6 +54,7 @@ def test_prefixes_are_frozen():
         "l",
         "e",
         "i",
+        "t",
         "w",
         "s",
     ]
