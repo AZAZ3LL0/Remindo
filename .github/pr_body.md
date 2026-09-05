@@ -1,46 +1,41 @@
-Closes the roadmap item **S12. Ops** (`tech.md` §15), the last one.
+Core change for the help surface. Appends §25 and bumps the core to **v12**.
 
-Builds on the v11 contract PR (#24), which is already in `main`.
+Not a roadmap item — §15 is closed, S0 through S12. This covers what no slice covered: the first minute of a new user. A product with eight commands, none of which is listed anywhere, is indistinguishable from a broken bot to somebody who just opened it.
 
-## What the slice does
+## What is missing today
 
-The worker ran five loops and told nobody anything. `run_loop` caught, logged and continued, so from outside a healthy worker and one whose planner had hung looked identical: the process was up either way. Nothing could say how far behind delivery was, container logs grew without a ceiling, and there was no backup.
+Four holes, all hitting the same person:
 
-- **`GET /healthz`** on the worker: `200` while every cycle is ticking, `503` naming the one that stopped. `docker compose ps worker` now reports `healthy`, and `restart: unless-stopped` acts on the red.
-- **`GET /metrics`**: Prometheus text exposition of the three numbers §15 asked for — queue size, delivery lag, error share — plus per-cycle age and failure counters.
-- **`ops.monitor`**, a fifth cycle, reading the queue once a minute and messaging `ADMIN_USER_IDS` when the lag crosses `ALERT_LAG_MINUTES`.
-- **`scripts/backup.sh`** and **log rotation** on every compose service.
+1. **No `/help`.** No screen anywhere explains the product.
+2. **The Telegram command menu is empty.** `grep -rn set_my_commands app/` returns nothing, so typing `/` in the chat offers none of the eight commands that exist.
+3. **Unknown text gets silence.** There is not one unfiltered `@router.message()`, so anything that is neither a command nor an answer to the wizard falls through to nothing. In a messenger, silence reads as a crash, not as "I did not understand".
+4. **Onboarding ends on the settings screen** (`app/bot/handlers/start.py:117`). Somebody who has just named their timezone gets a list of settings instead of an answer to "so now what".
 
-## The three decisions it turns on
+## §25, and the three decisions in it
 
-**The heartbeat marks every attempt, failed ones included.** A database that blinks for a minute knocks over all five cycles while the loop keeps turning, and restarting the worker at that exact moment cures nothing and compounds into a restart loop. So `/healthz` never touches the database, and what it measures is the loop turning. A genuinely hung cycle is still caught from the other side: its attempt never returns, so its mark freezes and the budget runs out.
+**One list, two consumers.** The Telegram menu and the command table in `/help` are one fact shown twice; drifting apart they lie in both directions — the menu offers what does not exist, or the help omits what does. So the list lives once, in `app/bot/commands.py`, and both screens are built from it. A contract test keeps it welded to the dispatcher: every menu command has a registered handler and every command handler reaches the menu, walking the real `build_dispatcher` rather than a copy of the list. The single exception is `/start`, and it is a named constant rather than an oversight — Telegram has its own Start button. Naming it means the test checks the exception instead of stepping around it.
 
-**The alert fires on the edge.** One message when the lag crosses the threshold, one when it comes back, nothing in between — an alert repeated every minute is not observation, it is a way to teach an operator to ignore it. That is also what makes the cycle idempotent: two runs in the same state send one message. The state lives in process memory because it belongs to the observer, not to the product; a restart costs one re-alert instead of a migration.
+**The menu goes through the protocol.** §8 requires everything external to sit behind a protocol and run against the fake from day one, and a menu push is a network call like any other. `BotGateway` gets `set_commands`, `FakeBotGateway` records it per language and validates it the way `validate_outgoing` validates a message: command matching `^[a-z0-9_]{1,32}$`, non-empty description within 256 characters, no duplicates, at most 100 entries. Otherwise the menu would be the one part of the bot that `USE_FAKE_BOT=true` cannot check, and the first thing to break for a live user.
 
-**Queue size counts what is overdue, not what is planned.** A reminder due tomorrow sits in the queue by design. Folding it in with what the dispatcher failed to send would measure popularity rather than delay.
+`BotCommandSpec.command` carries no leading slash, the way Telegram accepts it — the slash is drawn by the help renderer, because storing one value in two shapes is how the two screens drift.
 
-## The window, and why it hangs off `fire_at`
+**A failed menu push must not stop the bot.** If Telegram rejects it, the process still enters polling and the refusal is logged at error level. A bot that will not boot because a command caption failed to update is worse than a bot with a stale caption — the same rule by which §23.5 does not drop a digest batch over one recipient.
 
-The error share is `failed / (failed + delivered)` over `METRICS_WINDOW_MINUTES`, and the window is cut on `occurrences.fire_at` rather than `deliveries.updated_at`. `updated_at` is written by the database's own `now()`, while every other moment in the product comes from `Clock` (§8), and mixing two clocks for a metric is not a trade worth making. `fire_at` also asks the better question: of the things that came due in the last few minutes, what share never got out. Deliveries still queued count in neither half — they say nothing about transport yet — and an empty window reads as zero, not one, for the reason §23.2.6 gives about completion.
+## What lands
 
-One query, not three: three would each see a different `now`, and a report whose lag and queue size disagree about the present is worse than none. A predicate bounds it to rows one of the counters can use, so it is not a full scan of every delivery ever made once a minute.
-
-## Tests
-
-| type | what it pins |
+| file | change |
 |---|---|
-| contract | `/healthz` shape and its 200/503; `/metrics` parsed back the way a scraper reads it, including no scientific notation; the alert passes `FakeBotGateway` in both locales |
-| idempotency | two `ops.monitor` runs on the same lag send one alert; catching up says so once and then falls silent |
-| error path | `TelegramRetryAfter` leaves the edge unlatched for the next tick; `TelegramForbiddenError` on one admin does not cost the others their warning and mutes only that admin |
-| property-based | lag never negative and zero on an empty queue; ratio in [0, 1]; staleness monotone in time and never below the floor; `decide_alert` a two-state machine that never reports the same edge twice |
-| end to end | a failing cycle still keeps `/healthz` green and increments its failure counter; a cycle that stops ticking turns it red |
+| `tech.md` | §25, version `v12`, changelog line |
+| `app/gateways/bot_gateway.py` | `BotCommandSpec`, `set_commands` on the protocol and on `AiogramBotGateway` |
+| `app/gateways/fakes.py` | `validate_commands`, per-language recording in `FakeBotGateway` |
+| `app/bot/render/texts.py` | `help.screen`, `help.unknown`, and eight `cmd.*` descriptions |
 
-1792 passed, coverage 97%.
-
-## Verified against the running stack
-
-`docker compose ps worker` reports `healthy`; `/healthz` returns all five cycles with their ages and budgets; `/metrics` parses. `make backup` wrote a 35K custom-format dump, `make restore` brought back three reminders deleted from underneath it. Every container carries `json-file` with `max-size=10m, max-file=5`.
+`help.screen` deliberately carries no placeholders: the command table is glued on from `cmd.*` rather than formatted in, so adding a ninth command edits one place instead of two. The `cmd.*` strings serve both the Telegram menu entry and the help table — there is no second set of descriptions for the same thing.
 
 ## Boundaries
 
-No Prometheus or Grafana in compose: the exposition is offered, and who scrapes it is the host's business. No per-user metrics — those are §23, counted from the journal and owned by the recipient. No `/readyz`: the worker takes no inbound requests, so readiness and liveness are one fact.
+No sectioned help behind buttons and no new CallbackData factory: a product of eight commands is explained faster than a menu about it can be read. No step-by-step tutorial either — the `/new` wizard already walks the user through, and a second guided flow on top would explain the first instead of letting them use it.
+
+## Checks
+
+`ruff check`, `ruff format --check`, `mypy app` clean; 1822 passed.
