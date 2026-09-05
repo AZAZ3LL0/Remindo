@@ -2,6 +2,7 @@
 
 from aiogram import Router
 from aiogram.filters import Command, StateFilter
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,7 +63,10 @@ async def _card(user: User, session: AsyncSession, clock: Clock, category_id: in
 
 
 @router.message(Command("stats"))
-async def handle_stats(message: Message, user: User, session: AsyncSession, clock: Clock) -> None:
+async def handle_stats(
+    message: Message, user: User, session: AsyncSession, clock: Clock, state: FSMContext
+) -> None:
+    await state.clear()
     text, keyboard = await stats_screen(user, session, clock, NO_CATEGORY_FILTER, page=0)
     await message.answer(text, reply_markup=keyboard)
 

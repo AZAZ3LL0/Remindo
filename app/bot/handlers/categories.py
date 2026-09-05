@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.callbacks import CatCb, PageCb, WizCb
+from app.bot.filters import NOT_A_COMMAND
 from app.bot.fsm.categories import CategoryForm
 from app.bot.keyboards.categories import category_card_kb, category_list_kb, emoji_picker_kb
 from app.bot.keyboards.confirm import confirm_kb
@@ -77,7 +78,7 @@ async def handle_new(
     await _show(query, T("categories.ask_title", user.language), None)
 
 
-@router.message(CategoryForm.title)
+@router.message(CategoryForm.title, NOT_A_COMMAND)
 async def handle_title(message: Message, user: User, state: FSMContext) -> None:
     try:
         title = normalize_category_title(message.text or "")
@@ -122,7 +123,7 @@ async def handle_emoji(
     await _show(query, text, keyboard)
 
 
-@router.message(CategoryForm.emoji)
+@router.message(CategoryForm.emoji, NOT_A_COMMAND)
 async def handle_emoji_text(
     message: Message, user: User, session: AsyncSession, clock: Clock, state: FSMContext
 ) -> None:
@@ -164,7 +165,7 @@ async def handle_rename(
     await _show(query, T("categories.ask_new_title", user.language), None)
 
 
-@router.message(CategoryForm.rename)
+@router.message(CategoryForm.rename, NOT_A_COMMAND)
 async def handle_rename_text(
     message: Message, user: User, session: AsyncSession, clock: Clock, state: FSMContext
 ) -> None:

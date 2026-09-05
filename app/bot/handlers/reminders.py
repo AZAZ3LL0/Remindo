@@ -17,6 +17,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.callbacks import CatCb, WizCb, unpack_wall_time, unpack_window
+from app.bot.filters import NOT_A_COMMAND
 from app.bot.fsm.reminder_wizard import ReminderWizard
 from app.bot.keyboards.confirm import confirm_kb
 from app.bot.keyboards.pickers import category_picker_kb
@@ -106,6 +107,10 @@ async def handle_new(
     message: Message, user: User, session: AsyncSession, clock: Clock, state: FSMContext
 ) -> None:
     categories = await CategoriesService(session, clock).list_for_user(user.id)
+    # A fresh wizard starts empty. Without the clear, the draft of an abandoned
+    # one survives, and the edit marker in it would turn the new reminder into
+    # an update of the old (tech.md 26.5).
+    await state.clear()
     await state.set_state(ReminderWizard.category)
     await message.answer(
         T("wizard.pick_category", user.language),
@@ -123,7 +128,7 @@ async def handle_category(
     await _show(query, T("wizard.ask_title", user.language), None)
 
 
-@router.message(ReminderWizard.title)
+@router.message(ReminderWizard.title, NOT_A_COMMAND)
 async def handle_title(message: Message, user: User, state: FSMContext) -> None:
     try:
         title = normalize_reminder_title(message.text or "")
@@ -199,7 +204,7 @@ async def handle_date(
     await _show(query, T("wizard.ask_at", user.language), once_time_kb(user.language))
 
 
-@router.message(ReminderWizard.date)
+@router.message(ReminderWizard.date, NOT_A_COMMAND)
 async def handle_date_text(message: Message, user: User, clock: Clock, state: FSMContext) -> None:
     today = local_today(clock.now(), ZoneInfo(user.timezone))
     try:
@@ -232,7 +237,7 @@ async def handle_at(
     await _show(query, *await _finish_once(state, at, user.language))
 
 
-@router.message(ReminderWizard.at)
+@router.message(ReminderWizard.at, NOT_A_COMMAND)
 async def handle_at_text(message: Message, user: User, state: FSMContext) -> None:
     try:
         at = parse_wall_time(message.text or "")
@@ -272,7 +277,7 @@ async def handle_daily_time(
     await _show(query, *_times_screen(times, user.language))
 
 
-@router.message(ReminderWizard.times)
+@router.message(ReminderWizard.times, NOT_A_COMMAND)
 async def handle_daily_time_text(message: Message, user: User, state: FSMContext) -> None:
     try:
         value = format_hhmm(parse_wall_time(message.text or ""))
@@ -394,7 +399,7 @@ async def handle_interval(
     await _show(query, *await _ask_window(state, int(callback_data.value), user.language))
 
 
-@router.message(ReminderWizard.every_minutes)
+@router.message(ReminderWizard.every_minutes, NOT_A_COMMAND)
 async def handle_interval_text(message: Message, user: User, state: FSMContext) -> None:
     try:
         minutes = parse_user_interval(message.text or "")
@@ -438,7 +443,7 @@ async def handle_window(
     await _show(query, *await _finish_interval(state, window, user.language))
 
 
-@router.message(ReminderWizard.window)
+@router.message(ReminderWizard.window, NOT_A_COMMAND)
 async def handle_window_text(message: Message, user: User, state: FSMContext) -> None:
     try:
         window = parse_user_window(message.text or "")
