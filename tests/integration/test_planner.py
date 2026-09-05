@@ -1,6 +1,6 @@
 """planner.materialize acceptance criteria (tech.md 7.1)."""
 
-from datetime import time, timedelta
+from datetime import UTC, datetime, time, timedelta
 from itertools import pairwise
 
 import pytest
@@ -10,7 +10,14 @@ from pydantic import ValidationError as PydanticValidationError
 from app.db.models import Delivery, Occurrence, Reminder
 from app.domain.contracts import ReminderStatus
 from app.domain.planning import MAX_OCCURRENCES_PER_CYCLE
-from app.domain.schedules import DailySchedule, IntervalSchedule, OnceSchedule, dump_schedule
+from app.domain.schedules import (
+    DailySchedule,
+    IntervalSchedule,
+    MonthlySchedule,
+    OnceSchedule,
+    WeeklySchedule,
+    dump_schedule,
+)
 from app.services.planning import PlanningService
 from tests.conftest import FROZEN_NOW
 
@@ -295,3 +302,56 @@ async def test_a_failed_cycle_leaves_no_partial_state(db_session, fake_clock, re
     assert result.reminders_processed == 2
     assert await count(db_session, Occurrence, reminder_id=healthy_id) > 0
     assert await count(db_session, Occurrence, reminder_id=broken_id) > 0
+
+
+@pytest.mark.parametrize(
+    "schedule",
+    [
+        WeeklySchedule(times=["07:30"], weekdays=[1, 3, 5]),
+        MonthlySchedule(times=["10:00"], days=[1, 31], on_missing_day="last_day"),
+        MonthlySchedule(times=["10:00"], days=[31], on_missing_day="skip"),
+        IntervalSchedule(every_minutes=30, window_start="00:00", window_end="00:00"),
+    ],
+    ids=["weekly", "monthly_last_day", "monthly_skip", "interval_all_day"],
+)
+async def test_the_new_kinds_survive_a_cycle_run_twice_across_a_transition(
+    db_session, fake_clock, reminder_factory, freeze_at, schedule
+):
+    """Idempotency where it is hardest: a day the local clock is not 24h long.
+
+    A schedule near a transition can produce the same wall-clock time twice, and
+    `(reminder_id, scheduled_for)` is the only thing standing between that and a
+    doubled queue.
+    """
+    # Europe/Berlin turns its clocks back on 2026-10-25.
+    freeze_at(datetime(2026, 10, 24, 12, 0, tzinfo=UTC))
+    reminder = await reminder_factory(schedule=schedule, timezone="Europe/Berlin")
+    await db_session.execute(
+        sa.update(Reminder)
+        .where(Reminder.id == reminder.id)
+        .values(starts_at=datetime(2026, 10, 24, 12, 0, tzinfo=UTC), planned_until=None)
+    )
+    await db_session.commit()
+    service = build_service(db_session, fake_clock, horizon_hours=24 * 45)
+
+    first = await service.materialize()
+    await db_session.execute(
+        sa.update(Reminder).where(Reminder.id == reminder.id).values(planned_until=None)
+    )
+    await db_session.commit()
+    second = await service.materialize()
+
+    moments = (
+        (
+            await db_session.execute(
+                sa.select(Occurrence.scheduled_for).where(Occurrence.reminder_id == reminder.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    assert first.occurrences_created > 0
+    assert second.occurrences_created == 0
+    assert len(set(moments)) == len(moments)
+    assert len(moments) == first.occurrences_created
