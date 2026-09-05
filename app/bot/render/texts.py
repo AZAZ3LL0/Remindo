@@ -273,18 +273,22 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
         "en": "{emoji} <b>{title}</b>\n{time}",
     },
     # The card is where the user decides what to change, so it spells out the
-    # schedule and the note as well (tech.md 21.7).
+    # schedule, the note and the shared access as well (tech.md 21.7, 22.8).
     "reminder.card": {
         "ru": (
             "{emoji} <b>{title}</b>\nСтатус: {status}\n"
-            "Расписание: {schedule}\nБлижайшее: {next_fire}{note}"
+            "Расписание: {schedule}\nБлижайшее: {next_fire}{shared}{note}"
         ),
         "en": (
             "{emoji} <b>{title}</b>\nStatus: {status}\n"
-            "Schedule: {schedule}\nNext: {next_fire}{note}"
+            "Schedule: {schedule}\nNext: {next_fire}{shared}{note}"
         ),
     },
     "reminder.note": {"ru": "\nЗаметка: {note}", "en": "\nNote: {note}"},
+    "reminder.shared": {
+        "ru": "\nПолучателей кроме тебя: {count}",
+        "en": "\nRecipients besides you: {count}",
+    },
     "reminder.schedule": {
         "ru": "{summary}, отложить на {snooze} мин, повтор: {repeat}",
         "en": "{summary}, snooze {snooze} min, repeat: {repeat}",
@@ -325,6 +329,83 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
     "list.paused_mark": {"ru": "⏸ ", "en": "⏸ "},
     "list.filter": {"ru": "Фильтр: {title}", "en": "Filter: {title}"},
     "list.filter_all": {"ru": "все категории", "en": "all categories"},
+    # Shared access (tech.md 22.8).
+    "share.menu": {
+        "ru": "Доступ к «{title}».\n{recipients}",
+        "en": "Access to “{title}”.\n{recipients}",
+    },
+    "share.recipients": {"ru": "Получатели:\n{items}", "en": "Recipients:\n{items}"},
+    "share.recipients_none": {
+        "ru": "Пока никто, кроме тебя.",
+        "en": "Nobody but you so far.",
+    },
+    "share.recipient_item": {"ru": "• {mark}{name}", "en": "• {mark}{name}"},
+    "share.pending_mark": {"ru": "⏳ ", "en": "⏳ "},
+    "share.owner": {"ru": "ты", "en": "you"},
+    "share.unknown_user": {"ru": "без имени", "en": "no name"},
+    "share.invite_link": {
+        "ru": "Ссылка живёт до {until}. Отдай её тому, кого зовёшь:\n{link}",
+        "en": "The link lives until {until}. Hand it to whoever you are inviting:\n{link}",
+    },
+    "share.invite_revoked": {
+        "ru": "Ссылка отозвана. По ней больше не присоединиться.",
+        "en": "The link is revoked. Nobody can join through it any more.",
+    },
+    "share.no_invite": {"ru": "Живой ссылки нет.", "en": "There is no live link."},
+    "share.link_invalid": {
+        "ru": "Это не похоже на приглашение.",
+        "en": "That does not look like an invitation.",
+    },
+    "share.link_unknown": {
+        "ru": "Такого приглашения нет.",
+        "en": "No such invitation.",
+    },
+    "share.link_dead": {
+        "ru": "Приглашение отозвано или просрочено. Попроси новую ссылку.",
+        "en": "The invitation is revoked or expired. Ask for a new link.",
+    },
+    "share.own_invite": {
+        "ru": "Это твоё собственное напоминание.",
+        "en": "This is your own reminder.",
+    },
+    "share.already_in": {
+        "ru": "Ты уже получаешь это напоминание.",
+        "en": "You already receive this reminder.",
+    },
+    "share.full": {
+        "ru": "У напоминания уже {maximum} получателей, больше не поместится.",
+        "en": "The reminder already has {maximum} recipients and cannot take more.",
+    },
+    "share.offer": {
+        "ru": "{owner} зовёт тебя получать это напоминание.",
+        "en": "{owner} invites you to receive this reminder.",
+    },
+    "share.accepted": {
+        "ru": "Готово, напоминание будет приходить и тебе.",
+        "en": "Done, the reminder will reach you too.",
+    },
+    "share.declined": {"ru": "Приглашение отклонено.", "en": "Invitation declined."},
+    "share.confirm_leave": {
+        "ru": "Отписаться от «{title}»?",
+        "en": "Unsubscribe from “{title}”?",
+    },
+    "share.left": {
+        "ru": "Отписался. Это напоминание больше не придёт.",
+        "en": "Unsubscribed. This reminder will not reach you again.",
+    },
+    "share.list_title": {"ru": "Общие напоминания ({total})", "en": "Shared reminders ({total})"},
+    "share.list_empty": {
+        "ru": "Тебя пока никуда не звали.",
+        "en": "Nobody has invited you anywhere yet.",
+    },
+    "share.list_item": {
+        "ru": "{index}. {mark}{emoji} {title} — от {owner}",
+        "en": "{index}. {mark}{emoji} {title} — from {owner}",
+    },
+    "share.card": {
+        "ru": "{emoji} <b>{title}</b>\nОт: {owner}\nРасписание: {schedule}\nБлижайшее: {next_fire}",
+        "en": "{emoji} <b>{title}</b>\nFrom: {owner}\nSchedule: {schedule}\nNext: {next_fire}",
+    },
     "edit.menu": {"ru": "Что меняем?", "en": "What are we changing?"},
     "edit.ask_title": {"ru": "Пришли новое название.", "en": "Send the new title."},
     "edit.ask_note": {
@@ -421,6 +502,13 @@ TEXTS: Final[dict[str, dict[Lang, str]]] = {
     "btn.edit_repeat": {"ru": "Автоповтор", "en": "Auto repeat"},
     "btn.repeat_off": {"ru": "Выключить", "en": "Turn off"},
     "btn.note_clear": {"ru": "Очистить", "en": "Clear"},
+    "btn.share": {"ru": "Доступ", "en": "Access"},
+    "btn.invite": {"ru": "Пригласить", "en": "Invite"},
+    "btn.revoke": {"ru": "Отозвать ссылку", "en": "Revoke the link"},
+    "btn.accept": {"ru": "Принять", "en": "Accept"},
+    "btn.decline": {"ru": "Отклонить", "en": "Decline"},
+    "btn.leave": {"ru": "Отписаться", "en": "Unsubscribe"},
+    "btn.to_shared": {"ru": "‹ К общим", "en": "‹ To shared"},
     "btn.timezone": {"ru": "Таймзона", "en": "Timezone"},
     "btn.language": {"ru": "Язык", "en": "Language"},
     "btn.quiet": {"ru": "Тихие часы", "en": "Quiet hours"},

@@ -5,16 +5,29 @@ from typing import Literal
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.bot.callbacks import CatCb, RemCb, WizCb
+from app.bot.callbacks import CatCb, RemCb, ShareCb, WizCb
 from app.bot.render.texts import DEFAULT_LANG, Lang, T
 
-ConfirmAction = Literal["delete", "create", "archive"]
+ConfirmAction = Literal["delete", "create", "archive", "leave"]
 
 
 def confirm_kb(
     action: ConfirmAction, entity_id: int, lang: Lang = DEFAULT_LANG
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    if action == "leave":
+        # Same rule as deleting (tech.md 21.6, 22.3): cancelling has a screen
+        # of its own to come back to, so it does not use the shared atom.
+        builder.button(
+            text=T("btn.yes", lang),
+            callback_data=ShareCb(reminder_id=entity_id, action="confirm_leave"),
+        )
+        builder.button(
+            text=T("btn.cancel", lang),
+            callback_data=ShareCb(reminder_id=entity_id, action="open"),
+        )
+        builder.adjust(2)
+        return builder.as_markup()
     if action == "delete":
         # Cancelling goes back where it came from. Deleting has a card to
         # return to, unlike creation and category archiving (tech.md 21.6).

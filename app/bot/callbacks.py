@@ -36,9 +36,13 @@ class PageCb(CallbackData, prefix="p"):
     `rem` is unused since S9: the reminder list carries a category filter and
     pages with `ListCb`. The literal stays because factory values are never
     renamed or dropped, for the same reason enum values are not (tech.md 4.1).
+
+    `shared` pages the reminders somebody else shared with the user. That list
+    has no filter, so unlike the reminder list it needs no factory of its own
+    (tech.md 22.3).
     """
 
-    scope: Literal["rem", "cat", "today"]
+    scope: Literal["rem", "cat", "today", "shared"]
     page: int
 
 
@@ -67,6 +71,18 @@ class EditCb(CallbackData, prefix="e"):
 
     reminder_id: int
     field: Literal["menu", "title", "note", "category", "schedule", "snooze", "repeat"]
+
+
+class ShareCb(CallbackData, prefix="i"):
+    """Shared access to one reminder (tech.md 22.3).
+
+    It carries the reminder and not the invitation token: by the time any of
+    these buttons is pressed the recipient row already exists, so there is no
+    reason to put twenty-two characters of token into `callback_data`.
+    """
+
+    reminder_id: int
+    action: Literal["open", "invite", "revoke", "accept", "decline", "leave", "confirm_leave"]
 
 
 class WizCb(CallbackData, prefix="w"):
@@ -123,6 +139,7 @@ KNOWN_CALLBACK_FACTORIES: tuple[type[CallbackData], ...] = (
     PageCb,
     ListCb,
     EditCb,
+    ShareCb,
     WizCb,
     SetCb,
 )

@@ -31,3 +31,11 @@ class CategoryInUseError(DomainError):
 
 class CategoryExistsError(DomainError):
     """Owner already has an active category under this title."""
+
+
+class InviteExpiredError(DomainError):
+    """Invitation is revoked or past its expiry (tech.md 22.2)."""
+
+
+class RecipientLimitError(DomainError):
+    """Reminder already carries as many watchers as it may (tech.md 22.4)."""

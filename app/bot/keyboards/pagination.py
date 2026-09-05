@@ -10,7 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.bot.callbacks import NOOP_CALLBACK, PageCb
 from app.bot.render.texts import DEFAULT_LANG, Lang, T
 
-Scope = Literal["rem", "cat", "today"]
+Scope = Literal["rem", "cat", "today", "shared"]
 
 
 class PageItem(NamedTuple):

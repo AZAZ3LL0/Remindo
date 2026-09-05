@@ -90,8 +90,14 @@ def render_reminder_card(
     next_fire: datetime | None,
     tz: ZoneInfo,
     lang: Lang = DEFAULT_LANG,
+    watchers: int = 0,
 ) -> str:
-    """The card the user reads before deciding what to change (tech.md 21.7)."""
+    """The card the user reads before deciding what to change (tech.md 21.7).
+
+    `watchers` counts the recipients other than the owner. A reminder that goes
+    out to three more people has to say so on the one screen where its state is
+    read (tech.md 22.8).
+    """
     repeat = (
         T("reminder.repeat_off", lang)
         if reminder.repeat_after_minutes is None
@@ -112,6 +118,7 @@ def render_reminder_card(
         status=T(_STATUS_KEYS[reminder.status], lang),
         schedule=schedule,
         next_fire=format_local(next_fire, tz, lang),
+        shared="" if watchers <= 0 else T("reminder.shared", lang, count=watchers),
         note="" if reminder.note is None else T("reminder.note", lang, note=reminder.note),
     )
 
