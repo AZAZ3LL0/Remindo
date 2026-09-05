@@ -1,6 +1,17 @@
 name: reminder
 
+# Log rotation lives here and nowhere else (tech.md 24.5). The processes write
+# a structured stream to stdout, docker owns the file, and a second rotator
+# inside the container would only drift from this one.
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
 x-app: &app
+  <<: *logging
   build:
     context: ..
     dockerfile: docker/Dockerfile
@@ -16,6 +27,7 @@ x-app: &app
 
 services:
   db:
+    <<: *logging
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: app
@@ -25,6 +37,9 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Backups are taken by the container that owns pg_dump (tech.md 24.4).
+      - ../scripts:/srv/scripts:ro
+      - ../backups:/backups
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d reminder"]
       interval: 3s
@@ -48,6 +63,15 @@ services:
   worker:
     <<: *app
     command: ["python", "-m", "app.worker.main"]
+    restart: unless-stopped
+    # An endpoint with nobody asking is a metric, not a healthcheck. The port
+    # stays inside the network: the check comes from within the container.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${HEALTH_PORT:-8080}/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
       db:
         condition: service_healthy
