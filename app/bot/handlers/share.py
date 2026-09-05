@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.filters import Command, StateFilter
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -231,7 +232,10 @@ async def handle_confirm_leave(
 
 
 @router.message(Command("shared"))
-async def handle_shared(message: Message, user: User, session: AsyncSession, clock: Clock) -> None:
+async def handle_shared(
+    message: Message, user: User, session: AsyncSession, clock: Clock, state: FSMContext
+) -> None:
+    await state.clear()
     text, keyboard = await _shared_list(user, session, clock, page=0)
     await message.answer(text, reply_markup=keyboard)
 

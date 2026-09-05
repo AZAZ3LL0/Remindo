@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, StateFilter
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -84,7 +85,13 @@ async def render_list(
 
 
 @router.message(Command("list"))
-async def handle_list(message: Message, user: User, session: AsyncSession, clock: Clock) -> None:
+async def handle_list(
+    message: Message, user: User, session: AsyncSession, clock: Clock, state: FSMContext
+) -> None:
+    # Opening a screen is navigation, and navigation drops the wizard
+    # (tech.md 26.5): otherwise the next phrase typed becomes the title of a
+    # reminder the user walked away from.
+    await state.clear()
     text, keyboard = await render_list(user, session, clock, 0, NO_CATEGORY_FILTER)
     await message.answer(text, reply_markup=keyboard)
 
@@ -124,7 +131,10 @@ async def handle_filter(
 
 
 @router.message(Command("today"))
-async def handle_today(message: Message, user: User, session: AsyncSession, clock: Clock) -> None:
+async def handle_today(
+    message: Message, user: User, session: AsyncSession, clock: Clock, state: FSMContext
+) -> None:
+    await state.clear()
     text, keyboard = await _today_screen(user, session, clock, page=0)
     await message.answer(text, reply_markup=keyboard)
 

@@ -7,9 +7,11 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.callbacks import SetCb
+from app.bot.filters import NOT_A_COMMAND
 from app.bot.fsm.onboarding import Onboarding
 from app.bot.handlers.settings import settings_screen
 from app.bot.handlers.share import follow_invite, pending_invite_screen
+from app.bot.keyboards.menu import main_menu_kb
 from app.bot.keyboards.settings import timezone_picker_kb
 from app.bot.render.help import render_help
 from app.bot.render.texts import T
@@ -56,7 +58,12 @@ async def handle_start(
         await message.answer(text, reply_markup=keyboard)
         return
 
-    await message.answer(T("start.welcome_back", user.language, name=user.first_name))
+    # The greeting carries no inline keyboard of its own, so it is where the
+    # permanent menu is redrawn for somebody coming back (tech.md 26.6).
+    await message.answer(
+        T("start.welcome_back", user.language, name=user.first_name),
+        reply_markup=main_menu_kb(user.language),
+    )
     text, keyboard = settings_screen(user)
     await message.answer(text, reply_markup=keyboard)
 
@@ -85,7 +92,7 @@ async def handle_onboarding_timezone(
         await _finish_onboarding(query.message, updated, session, clock)
 
 
-@router.message(Onboarding.timezone)
+@router.message(Onboarding.timezone, NOT_A_COMMAND)
 async def handle_onboarding_timezone_text(
     message: Message,
     user: User,
@@ -120,7 +127,14 @@ async def _finish_onboarding(
     25.5): somebody who has just named their timezone has finished with
     settings and has not yet seen the product.
     """
-    await message.answer(T("start.timezone_saved", user.language, timezone=user.timezone))
+    # The confirmation, not the help screen, carries the menu: the invitee
+    # branch below returns with an inline keyboard of its own, and one message
+    # holds one markup (tech.md 26.6). Attached here, both branches end with the
+    # menu drawn.
+    await message.answer(
+        T("start.timezone_saved", user.language, timezone=user.timezone),
+        reply_markup=main_menu_kb(user.language),
+    )
     screen = await pending_invite_screen(user, session, clock)
     if screen is not None:
         text, keyboard = screen

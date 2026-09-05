@@ -14,6 +14,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.callbacks import NO_CATEGORY_FILTER, CatCb, EditCb, RemCb, WizCb
+from app.bot.filters import NOT_A_COMMAND
 from app.bot.fsm.reminder_edit import ReminderEdit
 from app.bot.fsm.reminder_wizard import ReminderWizard
 from app.bot.handlers.lists import render_list, show
@@ -165,7 +166,7 @@ async def handle_edit_field(
     await show(query, *await _field_screen(callback_data.field, user, session, clock, state))
 
 
-@router.message(ReminderEdit.title)
+@router.message(ReminderEdit.title, NOT_A_COMMAND)
 async def handle_title(
     message: Message, user: User, session: AsyncSession, clock: Clock, state: FSMContext
 ) -> None:
@@ -177,7 +178,7 @@ async def handle_title(
     await _saved(message, user, session, clock, state)
 
 
-@router.message(ReminderEdit.note)
+@router.message(ReminderEdit.note, NOT_A_COMMAND)
 async def handle_note(
     message: Message, user: User, session: AsyncSession, clock: Clock, state: FSMContext
 ) -> None:
@@ -244,7 +245,7 @@ async def handle_snooze(
     await show(query, *await _back_to_card(user, session, clock, state))
 
 
-@router.message(ReminderEdit.snooze)
+@router.message(ReminderEdit.snooze, NOT_A_COMMAND)
 async def handle_snooze_text(
     message: Message, user: User, session: AsyncSession, clock: Clock, state: FSMContext
 ) -> None:
@@ -291,7 +292,7 @@ async def handle_repeat(
     await show(query, *await _back_to_card(user, session, clock, state))
 
 
-@router.message(ReminderEdit.repeat)
+@router.message(ReminderEdit.repeat, NOT_A_COMMAND)
 async def handle_repeat_text(
     message: Message, user: User, session: AsyncSession, clock: Clock, state: FSMContext
 ) -> None:
