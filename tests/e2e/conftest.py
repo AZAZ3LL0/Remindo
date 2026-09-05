@@ -12,6 +12,7 @@ from aiogram.types import User as TgUser
 from app.bot.handlers import categories as categories_handlers
 from app.bot.handlers import errors as errors_handlers
 from app.bot.handlers import lists as lists_handlers
+from app.bot.handlers import manage as manage_handlers
 from app.bot.handlers import reactions as reactions_handlers
 from app.bot.handlers import reminders as reminders_handlers
 from app.bot.handlers import settings as settings_handlers
@@ -34,6 +35,7 @@ HANDLER_MODULES = (
     settings_handlers,
     categories_handlers,
     reminders_handlers,
+    manage_handlers,
     reactions_handlers,
     lists_handlers,
     stats_handlers,
