@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from hypothesis import strategies as st
 
 from app.domain.contracts import CATEGORY_TITLE_MAX_LENGTH, REMINDER_TITLE_MAX_LENGTH
+from app.domain.quiet_hours import QuietHours
 from app.domain.schedules import (
     DailySchedule,
     IntervalSchedule,
@@ -55,6 +56,20 @@ utc_moments = st.datetimes(
 ).map(lambda value: value.replace(second=0, microsecond=0, tzinfo=UTC))
 
 time_lists = st.lists(hhmm, min_size=1, max_size=12, unique=True)
+
+#: A silent interval a user may have saved, including the ones that cross
+#: midnight. Onboarding refuses equal ends, so they are drawn apart.
+silent_hours = st.builds(
+    QuietHours,
+    tz=timezones,
+    start=local_times,
+    end=local_times,
+).filter(lambda quiet: quiet.start != quiet.end)
+
+#: Quiet hours switched off, which is the state most users are in.
+silence_off = timezones.map(QuietHours)
+
+quiet_hours = st.one_of(silent_hours, silence_off)
 
 
 once_schedules = st.builds(

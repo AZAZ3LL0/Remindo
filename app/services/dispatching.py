@@ -26,6 +26,7 @@ from app.domain.dispatching import (
     decide_failure,
     decide_success,
 )
+from app.domain.sweeping import decide_repeat, is_overdue
 from app.gateways.bot_gateway import (
     BotGateway,
     MessageRef,
@@ -33,6 +34,7 @@ from app.gateways.bot_gateway import (
     classify_error,
     retry_after_seconds,
 )
+from app.services.recipients import quiet_hours_of
 
 _log = get_logger(__name__)
 
@@ -213,7 +215,13 @@ class ReaperService:
         return result
 
     async def _expire_overdue(self, now: datetime) -> int:
-        overdue = await self._occurrences.list_expired(now, self._batch_size)
+        # The query narrows the batch; the rule itself is checked in the domain,
+        # so an occurrence somebody answered is never overwritten with silence.
+        overdue = [
+            occurrence
+            for occurrence in await self._occurrences.list_expired(now, self._batch_size)
+            if is_overdue(occurrence.status, occurrence.expires_at, now)
+        ]
         for occurrence in overdue:
             for delivery in await self._deliveries.list_sent_for_occurrence(occurrence.id):
                 await self._deliveries.add_action(
@@ -241,15 +249,31 @@ class ReaperService:
 
     async def _repeat_unanswered(self, now: datetime) -> int:
         candidates = await self._deliveries.list_repeat_candidates(now, self._batch_size)
-        for delivery, _reminder, occurrence in candidates:
+        repeated = 0
+        for delivery, reminder, occurrence, user in candidates:
+            plan = decide_repeat(
+                sent_at=delivery.sent_at,
+                repeat_after_minutes=reminder.repeat_after_minutes,
+                repeats_sent=occurrence.repeats_sent,
+                max_repeats=reminder.max_repeats,
+                expires_at=occurrence.expires_at,
+                quiet=quiet_hours_of(user),
+                now=now,
+            )
+            if plan is None:
+                continue
             await self._deliveries.update_fields(
                 delivery.id,
                 status=DeliveryStatus.PENDING,
-                next_attempt_at=now,
+                next_attempt_at=plan.next_attempt_at,
                 locked_until=None,
             )
+            # The budget is spent when the repeat is queued, not when it lands:
+            # counting on delivery would let one silent night queue every repeat
+            # the reminder has.
             await self._occurrences.bump_repeats(occurrence.id)
-        return len(candidates)
+            repeated += 1
+        return repeated
 
     async def _purge_fsm_states(self, now: datetime) -> int:
         stmt = (

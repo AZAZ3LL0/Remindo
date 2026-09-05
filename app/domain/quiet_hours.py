@@ -1,5 +1,6 @@
 """Quiet hours shift delivery to the end of the silent interval, never drop it."""
 
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -61,3 +62,34 @@ def _resolve_end(fire_at: datetime, tz: ZoneInfo, end_date: date, quiet_end: tim
         return later.astimezone(fire_at.tzinfo)
 
     return to_utc(naive + timedelta(days=1), tz)
+
+
+@dataclass(frozen=True, slots=True)
+class QuietHours:
+    """One recipient's silent interval, in the timezone they live in.
+
+    Quiet hours are a property of the person, not of the reminder: the planner,
+    the reaper and a snooze all postpone against the same interval. Bundling
+    the three fields keeps every caller from re-deriving the pair from a user
+    row and picking the wrong timezone on the way.
+    """
+
+    tz: ZoneInfo
+    start: time | None = None
+    end: time | None = None
+
+    @property
+    def is_on(self) -> bool:
+        """Both ends are set, which is the shape the schema allows (tech.md 4.2)."""
+        return self.start is not None and self.end is not None
+
+    def covers(self, moment: datetime) -> bool:
+        """The moment falls inside the silence."""
+        start, end = self.start, self.end
+        if start is None or end is None:
+            return False
+        return is_quiet(moment.astimezone(self.tz).time(), start, end)
+
+    def shift(self, moment: datetime) -> datetime:
+        """Move a delivery moment out of the silence, or leave it alone."""
+        return apply_quiet_hours(moment, self.tz, self.start, self.end)

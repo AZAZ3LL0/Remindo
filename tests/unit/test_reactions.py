@@ -6,6 +6,7 @@ refuses the same tap.
 """
 
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from hypothesis import given, settings
@@ -23,9 +24,11 @@ from app.domain.reactions import (
     RejectReason,
     check_reactable,
     decide_reaction,
+    postpone,
     roll_up_occurrence,
 )
-from tests.unit.strategies import utc_moments
+from app.domain.quiet_hours import QuietHours
+from tests.unit.strategies import quiet_hours, silent_hours, utc_moments
 
 CASES = settings(max_examples=200, deadline=None)
 
@@ -43,6 +46,19 @@ live_delivery_statuses = st.sampled_from(
 )
 snooze_minutes = st.integers(min_value=1, max_value=1440)
 horizons = st.integers(min_value=1, max_value=10_000).map(lambda value: timedelta(minutes=value))
+
+
+#: Silence switched off, the state a reaction test is in unless it says otherwise.
+NO_SILENCE = QuietHours(tz=ZoneInfo("UTC"))
+
+#: Far enough out that the TTL never caps a snooze the test did not aim at it.
+FOREVER = timedelta(days=365)
+
+
+def decide(kind, now, minutes, *, quiet=NO_SILENCE, expires_at=None):
+    return decide_reaction(
+        kind, now, minutes, quiet=quiet, expires_at=expires_at or now + FOREVER
+    )
 
 
 def check(kind, now, *, delivery_status, occurrence_status, expires_at, snoozed_until=None):
@@ -122,7 +138,7 @@ def test_a_reaction_leaves_a_state_that_refuses_the_same_reaction(
     # A live delivery under an open occurrence always takes a first tap.
     assert reason is None
 
-    reaction = decide_reaction(kind, now, minutes)
+    reaction = decide(kind, now, minutes)
     repeated = check(
         kind,
         now,
@@ -139,7 +155,7 @@ def test_a_reaction_leaves_a_state_that_refuses_the_same_reaction(
 @given(now=utc_moments, ahead=horizons, minutes=snooze_minutes)
 def test_a_postponed_delivery_still_takes_a_final_answer(now, ahead, minutes):
     """Snoozing is not answering: a duplicate message may still close it."""
-    snoozed = decide_reaction(ActionKind.SNOOZE, now, minutes)
+    snoozed = decide(ActionKind.SNOOZE, now, minutes)
 
     for kind in (ActionKind.DONE, ActionKind.SKIP):
         assert (
@@ -158,7 +174,7 @@ def test_a_postponed_delivery_still_takes_a_final_answer(now, ahead, minutes):
 @CASES
 @given(kind=user_actions, now=utc_moments, minutes=snooze_minutes)
 def test_a_reaction_writes_a_due_moment_or_an_answer_but_never_both(kind, now, minutes):
-    reaction = decide_reaction(kind, now, minutes)
+    reaction = decide(kind, now, minutes)
 
     assert (reaction.reacted_at is None) != (reaction.snoozed_until is None)
     assert reaction.kind is kind
@@ -168,7 +184,7 @@ def test_a_reaction_writes_a_due_moment_or_an_answer_but_never_both(kind, now, m
 @CASES
 @given(now=utc_moments, minutes=snooze_minutes)
 def test_a_snooze_always_lands_in_the_future(now, minutes):
-    reaction = decide_reaction(ActionKind.SNOOZE, now, minutes)
+    reaction = decide(ActionKind.SNOOZE, now, minutes)
 
     assert reaction.snoozed_until == now + timedelta(minutes=minutes)
     assert reaction.snoozed_until > now
@@ -176,9 +192,48 @@ def test_a_snooze_always_lands_in_the_future(now, minutes):
 
 
 @CASES
+@given(now=utc_moments, minutes=snooze_minutes, quiet=silent_hours, ahead=horizons)
+def test_a_snooze_never_lands_inside_the_silence_it_can_escape(now, minutes, quiet, ahead):
+    """Asking for ten more minutes at 22:55 must not answer at 23:05.
+
+    The one moment allowed to stay silent is the requested one: the occurrence
+    dies before the silence ends, so the reminder comes back late instead of
+    never.
+    """
+    requested = now + timedelta(minutes=minutes)
+    expires_at = requested + ahead
+    reaction = decide(ActionKind.SNOOZE, now, minutes, quiet=quiet, expires_at=expires_at)
+
+    assert reaction.snoozed_until >= requested
+    assert not quiet.covers(reaction.snoozed_until) or reaction.snoozed_until == requested
+
+
+@CASES
+@given(now=utc_moments, minutes=snooze_minutes, quiet=quiet_hours, ahead=horizons)
+def test_silence_that_outlasts_the_occurrence_never_swallows_the_snooze(
+    now, minutes, quiet, ahead
+):
+    """Late beats lost: a reminder is postponed, never dropped (tech.md 1.1)."""
+    expires_at = now + timedelta(minutes=minutes) + ahead
+    moment = postpone(now, minutes, quiet=quiet, expires_at=expires_at)
+
+    assert moment < expires_at
+    assert moment >= now + timedelta(minutes=minutes)
+
+
+@CASES
+@given(now=utc_moments, minutes=snooze_minutes, quiet=quiet_hours, ahead=horizons)
+def test_postponing_twice_postpones_the_same(now, minutes, quiet, ahead):
+    expires_at = now + timedelta(minutes=minutes) + ahead
+    assert postpone(now, minutes, quiet=quiet, expires_at=expires_at) == postpone(
+        now, minutes, quiet=quiet, expires_at=expires_at
+    )
+
+
+@CASES
 @given(kind=user_actions, now=utc_moments, minutes=snooze_minutes)
 def test_deciding_twice_decides_the_same(kind, now, minutes):
-    assert decide_reaction(kind, now, minutes) == decide_reaction(kind, now, minutes)
+    assert decide(kind, now, minutes) == decide(kind, now, minutes)
 
 
 @CASES
@@ -204,11 +259,11 @@ def test_the_reapers_action_is_not_a_reaction():
     """`auto_expire` is written by the reaper, never by a button."""
     assert ActionKind.AUTO_EXPIRE not in USER_ACTIONS
     with pytest.raises(ValueError, match="recipient"):
-        decide_reaction(ActionKind.AUTO_EXPIRE, NOW, 10)
+        decide(ActionKind.AUTO_EXPIRE, NOW, 10)
 
 
 @pytest.mark.parametrize("minutes", [0, -1])
 def test_a_snooze_shorter_than_a_minute_is_refused(minutes):
     """It would be redelivered by the next dispatcher cycle, in a loop."""
     with pytest.raises(ValueError, match="at least one minute"):
-        decide_reaction(ActionKind.SNOOZE, NOW, minutes)
+        decide(ActionKind.SNOOZE, NOW, minutes)
