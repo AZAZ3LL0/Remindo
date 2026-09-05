@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from app.core.di import AppContext, build_context
 from app.core.logging import get_logger
 from app.domain.contracts import JobId
-from app.worker import dispatcher, planner, reaper
+from app.worker import digest, dispatcher, planner, reaper
 
 _log = get_logger(__name__)
 
@@ -56,6 +56,18 @@ async def run() -> None:
                     settings.planner_interval_seconds,
                     lambda: reaper.run_once(
                         context.session_factory, context.clock, context.gateway
+                    ),
+                )
+            )
+            group.create_task(
+                run_loop(
+                    # A weekly message needs no period of its own: the sweep
+                    # interval is already a minute, and a second name for the
+                    # same number is only a way to desynchronise them.
+                    JobId.DIGEST_SEND,
+                    settings.planner_interval_seconds,
+                    lambda: digest.run_once(
+                        context.session_factory, context.clock, context.gateway, settings
                     ),
                 )
             )

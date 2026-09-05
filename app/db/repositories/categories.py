@@ -23,6 +23,13 @@ class CategoriesRepository:
         stmt = sa.select(Category).where(Category.code == code, owner_clause)
         return (await self._session.execute(stmt)).scalar_one_or_none()
 
+    async def list_by_ids(self, category_ids: Sequence[int]) -> dict[int, Category]:
+        """Categories a statistics breakdown names, in one query rather than N."""
+        if not category_ids:
+            return {}
+        stmt = sa.select(Category).where(Category.id.in_(category_ids))
+        return {row.id: row for row in (await self._session.execute(stmt)).scalars().all()}
+
     async def list_available(self, owner_id: int) -> Sequence[Category]:
         """System presets plus the user's own, active first, stable order."""
         stmt = (

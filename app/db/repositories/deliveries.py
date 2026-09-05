@@ -112,18 +112,32 @@ class DeliveriesRepository:
         return int((await self._session.execute(stmt)).scalar_one())
 
     async def list_actions_for_user(
-        self, user_id: int, since: datetime, category_id: int | None = None
-    ) -> Sequence[DeliveryAction]:
+        self,
+        user_id: int,
+        since: datetime,
+        until: datetime | None = None,
+        category_id: int | None = None,
+    ) -> Sequence[tuple[DeliveryAction, int]]:
+        """The journal rows addressed to one user, each with its category.
+
+        The category rides along instead of being fetched per row: a month of
+        history would otherwise cost one query per reaction. It is read through
+        the reminder rather than out of the journal, so an edited category
+        carries its whole history with it (tech.md 23.1).
+        """
         stmt = (
-            sa.select(DeliveryAction)
+            sa.select(DeliveryAction, Reminder.category_id)
             .join(Delivery, Delivery.id == DeliveryAction.delivery_id)
             .join(Occurrence, Occurrence.id == Delivery.occurrence_id)
             .join(Reminder, Reminder.id == Occurrence.reminder_id)
             .where(DeliveryAction.user_id == user_id, DeliveryAction.created_at >= since)
         )
+        if until is not None:
+            stmt = stmt.where(DeliveryAction.created_at <= until)
         if category_id is not None:
             stmt = stmt.where(Reminder.category_id == category_id)
-        return (await self._session.execute(stmt)).scalars().all()
+        rows = (await self._session.execute(stmt)).all()
+        return [(row[0], row[1]) for row in rows]
 
     def _day_query(self, user_id: int, start: datetime, end: datetime) -> sa.Select[Any]:
         """Deliveries addressed to one user inside one local day (tech.md 21.9)."""

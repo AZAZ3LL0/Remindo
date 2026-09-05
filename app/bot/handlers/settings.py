@@ -144,6 +144,31 @@ async def handle_language(
     await _show(query, *settings_screen(updated))
 
 
+@router.callback_query(SetCb.filter(F.field == "digest"))
+async def handle_digest(
+    query: CallbackQuery,
+    callback_data: SetCb,
+    user: User,
+    session: AsyncSession,
+    clock: Clock,
+    default_timezone: str,
+    default_language: str,
+) -> None:
+    """The one setting with no screen of its own (tech.md 23.7): one question,
+    two values, so the button carries the answer it would set."""
+    if callback_data.value not in ("on", "off"):
+        raise ValidationError(f"unknown digest value: {callback_data.value!r}")
+
+    service = _service(session, clock, default_timezone, default_language)
+    updated = await service.set_digest(user.id, callback_data.value == "on")
+    state_name = T(
+        "settings.digest_on" if updated.digest_enabled else "settings.digest_off",
+        updated.language,
+    )
+    await query.answer(T("settings.digest_saved", updated.language, state=state_name))
+    await _show(query, *settings_screen(updated))
+
+
 @router.callback_query(SetCb.filter(F.field == "quiet"))
 async def handle_quiet(
     query: CallbackQuery,

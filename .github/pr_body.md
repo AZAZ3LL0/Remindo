@@ -1,39 +1,46 @@
-Bumps the core to **v10** and appends §23, the contract of **S11. Статистика** (`tech.md` §15). Contract change only: it defines what the slice may build and ships the shared files it needs. The slice itself follows in its own PR.
+Closes the roadmap item **S11. Статистика** (`tech.md` §15).
 
-## What §23 settles
+Builds on the v10 contract PR (#21), which is already in `main`.
 
-**Where the numbers come from.** Statistics read `delivery_actions` and nothing else. The queue is not a source: a pause (§21.3) and an unsubscribe (§22.6) delete rows that never went out, so a completion rate computed from `deliveries` would change retroactively when somebody presses Pause. An outcome is `done | skip | auto_expire`; a snooze postpones a reminder rather than resolving it, and counting it in the denominator would turn postponing into failing.
+## What the slice does
 
-**Whose they are.** A journal row is addressed to `delivery_actions.user_id`, so a watcher (§22.11) has their own streak on a shared reminder and the owner never sees it as theirs.
+`delivery_actions` had been filling up since S6 and nobody could read it. `/stats` existed as a skeleton that printed one streak and two percentages, and the roadmap asked for a streak *per category* and a weekly digest that did not exist at all.
 
-**Which category.** The breakdown joins through to `reminders.category_id` and reads it at query time rather than freezing it into the journal. Editing a category (§21.4) moves a reminder's whole history with it; a streak torn in half would lie to both categories.
+- **`/stats` now answers per category.** The screen leads with the whole picture — current streak, best streak, seven and thirty day completion — then breaks it down, one row per category the user has actually reacted in. Each row is a button into that category's own card, and the card leads back. The rows are the drill-in, so there is no filter picker: a screen already listing the categories does not need a second screen listing them again.
+- **The weekly digest**, a fourth worker cycle next to the planner, the dispatcher and the reaper. Monday 09:00 in the *recipient's* timezone, one message, no buttons: the week's completions, the streak, and what each category contributed.
+- **A switch to turn it off**, on the settings screen, because a weekly message you cannot stop is a defect.
 
-**The windows.** Seven and thirty days are rolling half-open intervals, not calendar weeks: a calendar window jumps on a DST transition and on a move, and a completion rate should not change because somebody changed timezone.
+## The three decisions the cycle turns on
 
-## The weekly digest
+**The idempotency key is the weekly moment, not the send.** `users.digest_sent_at` stores the Monday 09:00 the digest covered, never the instant it went out. The send drifts — the cycle wakes every minute, quiet hours postpone it, a `RetryAfter` postpones it again — and a stored `now` would have to be compared against the start of a week by arithmetic. Running the cycle twice sends one message; running it sixty times an hour for the rest of the week sends none.
 
-A fourth worker cycle, `digest.send`, described as a contract and tested as one. Three decisions worth naming:
+**A week is seven local days, not 168 hours.** `digest_window` counts on the wall clock, so a DST transition inside the week makes it an hour shorter or longer and the digest still arrives at 09:00. Adjacent windows abut exactly, which is what lets the mark of one week be the start of the next.
 
-- **The idempotency key is the weekly moment, not the send.** `users.digest_sent_at` stores the Monday-09:00 moment the digest covered, not the instant it went out. The send drifts — the cycle wakes once a minute, quiet hours postpone it, a retry postpones it again — and comparing a drifting `now` against the start of a week is arithmetic that a stored moment does not need.
-- **An empty week is marked but not sent.** A digest with no outcomes is the bot telling somebody they did nothing, unprompted. The mark still goes down, or the cycle would come back to that user every minute until the week ends.
-- **Quiet hours apply.** §20.1 named three paths that assign a delivery moment afresh and required each to pass through `apply_quiet_hours`; the digest is the fourth. The retry exception does not carry over: a retry is a delivery that already came due, and unlike an occurrence a digest has no TTL to expire against while the silence lasts.
+**Quiet hours reach the digest.** §20.1 named three paths that assign a delivery moment afresh; this is the fourth, and the retry exception does not carry over — a digest has no TTL to expire against while the silence lasts, so postponing it loses nothing. The shift delays the send and never renames the week: what gets stored is the unshifted moment, or a silence ending after midnight would pass two digests off as one.
 
-Transport failures use a shorter table than §7.2, because retrying a digest for longer than a week is pointless: `forbidden` blocks the user and marks it, `bad_request` marks it, `retry_after` and `transient` leave it for the next tick.
+## Statistics read the journal
 
-## The switch is not deferred
+The queue was never a candidate. A pause (§21.3) and an unsubscribe (§22.6) delete `pending` rows, so a completion rate computed from `deliveries` would move retroactively when somebody presses Pause. `delivery_actions` is append-only, and a snooze is deliberately not an outcome: it postpones a reminder rather than resolving it, and in the denominator it would turn postponing into failing.
 
-`users.digest_enabled` ships in the same migration as the digest, defaulting to on. A weekly message with no off switch is a defect rather than a feature, and adding the column a slice later means a week of sending something nobody can stop. It reaches the user through `SetCb(field="digest")` and toggles in place on the settings screen: the question has one answer and two values, so a screen holding a single switch would only stand between the two.
+The breakdown joins through to `reminders.category_id` at query time rather than freezing the category into the journal, so editing a reminder's category carries its whole history with it instead of tearing a streak in half. The category rides along with each row in one query: a month of history would otherwise cost one query per reaction.
 
-That placeholder is why `render_settings` and `settings_kb` move here rather than with the slice: `settings.title` gains `{digest}`, and a string nobody fills crashes the settings screen instead of postponing it. Both now come from one `settings_screen(user)` builder, so the state printed in the text and the button offering to flip it cannot disagree.
+A row whose category is gone is dropped rather than drawn blank — it has nothing to be labelled with, and a button opening a card that cannot be rendered is worse than no button.
 
 ## Contracts and types
 
-New: `StatCb` (prefix `t`, frozen), `JobId.DIGEST_SEND`, `users.digest_enabled` and `users.digest_sent_at` with their migration, `DIGEST_WEEKDAY` / `DIGEST_HOUR` / `DIGEST_BATCH_SIZE`, `app/bot/keyboards/stats.py`, and the text keys of §23.10.
+No schema change and no core file touched here: `StatCb`, `JobId.DIGEST_SEND`, the two `users` columns, the `DIGEST_*` settings, the stats keyboards and the text keys all landed in the v10 contract PR.
 
-`StatCb` carries the category next to the page for the reason `ListCb` does (§21.1): a page that loses the slice on the first arrow lies about what it shows. `PageCb.scope` and the `Scope` alias gain `stats`, which no arrow will ever use — `paginated_kb` takes `scope` positionally, and a screen naming somebody else's scope for a parameter it overrides anyway would be worse than an unused literal.
+New: `app/domain/digest.py` (`DigestWindow`, `last_digest_moment`, `digest_window`, `digest_due_at`), `app/services/digest.py` (`DigestService`, `DigestResult`), `app/worker/digest.py`.
 
-`SetCb.field` gains `digest`, append-only like `PageCb.scope` in v9.
+`app/domain/stats.py` gains `CategoryStats`, `StatsSummary.by_category` and `ActionRecord.category_id`; `StatsService` gains `summary_at` and `summary_for`, because the digest asks for a past moment rather than for `now` — a summary pinned to the send would report a different week on every retry. `UsersRepository` gains the candidate query and the mark, `CategoriesRepository` gains `list_by_ids`, and `DeliveriesRepository.list_actions_for_user` returns the category and accepts an upper bound.
 
-## Verification
+The domain reads no clock and no configuration: `digest_due_at` takes `now`, the weekday, the hour and the mark as arguments, so a digest is reproducible in a test without patching anything.
 
-`make lint`, `make typecheck` and `make test` are green (1683 passed). The migration was applied on an empty database and on the previous revision, and reversed in between; `test_prefixes_are_frozen` was extended with `t`, which is the guard doing its job rather than a change of contract.
+## Tests
+
+- **Contract** — `tests/contract/test_stats_contract.py`: every screen passes `FakeBotGateway`, `StatCb` round-trips inside 64 bytes at full size, the breakdown pages with its own factory and its arrows stay on the whole picture, the last page hides its forward arrow, the card returns to every category, the digest switch offers the side it would set and its atoms collide with no timezone or language code, the digest message carries no keyboard, and its title names the same week its idempotency key does.
+- **Idempotency** — `tests/integration/test_digest.py`: two cycles send one digest; a tick three days later sends nothing; the next week is owed again; an empty week is marked but not sent; and the mark survives a blocked chat.
+- **Error path** — `TelegramForbiddenError` blocks the user and closes the week, `TelegramBadRequest` closes it without a retry, and `TelegramRetryAfter` leaves it owed so the next tick delivers it. One failure does not cost the rest of the batch their week: each user commits on their own.
+- **Property-based** — `tests/unit/test_digest.py` over `domain/digest.py`: the moment is never in the future, always lands on the configured local weekday, keeps its local hour unless that hour does not exist, and consecutive moments are one *local* week apart; windows of adjacent weeks abut exactly; a due digest is always the unshifted moment; a marked week is never owed again; and silence only ever postpones. Checked across the DST zone set of §19.6. `tests/unit/test_stats.py` adds the breakdown invariants: the parts add up to the whole, a category streak never beats the total, the breakdown is ordered and holds only categories with outcomes, and journal order changes nothing.
+- **One unrelated fix** — `test_range_splits_without_gaps_or_duplicates` (S7) passed `limit=1000` over a range that can hold 1728 moments, so Hypothesis eventually found a five-minute interval where the whole range came back truncated while its two halves did not. The invariant is about the range, not about the ceiling; the limit is now out of reach and the test asserts that it stayed out of reach. Reproduced on `main` before the change. Nothing in `recurrence.py` moved.
+- **End to end** — `tests/e2e/test_stats_slice.py`: real routers from `/start` through two reminders in two categories, three answers, `/stats` showing both categories and 67%, a drill-in and back, the digest cycle delivering once to the chat, and the switch stopping it without marking the week.

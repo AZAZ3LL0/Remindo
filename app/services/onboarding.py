@@ -79,6 +79,18 @@ class OnboardingService:
         await self._session.commit()
         return user
 
+    async def set_digest(self, user_id: int, enabled: bool) -> User:
+        """Turn the weekly digest on or off (tech.md 23.7).
+
+        `digest_sent_at` is left alone. Turning the digest back on must not
+        replay the weeks it was off, and clearing the mark would do exactly
+        that on the next cycle.
+        """
+        user = await self._require_user(user_id)
+        user.digest_enabled = enabled
+        await self._session.commit()
+        return user
+
     async def set_quiet_hours(
         self, user_id: int, quiet_start: time | None, quiet_end: time | None
     ) -> User:
