@@ -28,3 +28,15 @@ class User(Base, TimestampMixin):
     onboarded_at: Mapped[datetime | None] = mapped_column(
         sa.TIMESTAMP(timezone=True), nullable=True
     )
+    #: Weekly digest (tech.md 23.7). It ships with its own off switch: a message
+    #: that arrives every week and cannot be stopped is a defect.
+    digest_enabled: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, server_default=sa.true()
+    )
+    #: The weekly moment of the last digest sent, not the moment it went out.
+    #: The send drifts (the cycle wakes once a minute, quiet hours postpone it,
+    #: a retry postpones it again); the weekly moment does not, which is what
+    #: makes it the idempotency key of `digest.send`.
+    digest_sent_at: Mapped[datetime | None] = mapped_column(
+        sa.TIMESTAMP(timezone=True), nullable=True
+    )
