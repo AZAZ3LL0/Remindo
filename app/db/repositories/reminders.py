@@ -43,6 +43,24 @@ class RemindersRepository:
             stmt = stmt.where(Reminder.category_id == category_id)
         return int((await self._session.execute(stmt)).scalar_one())
 
+    async def reset_planning(self, reminder_id: int, fired_count: int) -> None:
+        """Forget the materialised horizon (tech.md 21.3).
+
+        `planned_until` goes back to NULL: left in place, the planner would
+        think the horizon is already covered and materialise nothing until it
+        runs out.
+        """
+        stmt = (
+            sa.update(Reminder)
+            .where(Reminder.id == reminder_id)
+            .values(planned_until=None, fired_count=max(fired_count, 0))
+        )
+        await self._session.execute(stmt)
+
+    async def update_fields(self, reminder_id: int, **values: object) -> None:
+        stmt = sa.update(Reminder).where(Reminder.id == reminder_id).values(**values)
+        await self._session.execute(stmt)
+
     async def due_for_planning(self, horizon_end: datetime, limit: int) -> Sequence[Reminder]:
         """Active reminders whose materialised horizon is about to run out.
 
