@@ -1,0 +1,91 @@
+name: reminder
+
+# Production stack. It carries the same project name and the same `pgdata`
+# volume as docker/compose.yml, so bringing it up replaces the development
+# containers in place and keeps the database. The two are alternatives, never
+# neighbours.
+#
+# Every difference from the development stack is deliberate:
+#   - the image is built from the `runtime` target, so dev dependencies and the
+#     test toolchain stay out of what runs;
+#   - no source volume: the image is the artifact, and a file edited on the host
+#     no longer changes a running process;
+#   - Postgres keeps its port inside the compose network. Published, it offered
+#     app/app to anything that could reach the host;
+#   - every long-lived process restarts unless stopped.
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+x-app: &app
+  <<: *logging
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+    target: runtime
+  env_file: ../.env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://app:app@db:5432/reminder
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    <<: *logging
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: reminder
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Backups are taken by the container that owns pg_dump (tech.md 24.4).
+      - ../scripts:/srv/scripts:ro
+      - ../backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d reminder"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrator:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  bot:
+    <<: *app
+    command: ["python", "-m", "app.bot.main"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.worker.main"]
+    restart: unless-stopped
+    # An endpoint with nobody asking is a metric, not a healthcheck (tech.md
+    # 24.5). The port stays inside the network, so the check comes from within.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${HEALTH_PORT:-8080}/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      db:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

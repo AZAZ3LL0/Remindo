@@ -1,8 +1,10 @@
 COMPOSE := docker compose -f docker/compose.yml
+COMPOSE_PROD := docker compose -f docker/compose.prod.yml
 RUN := $(COMPOSE) run --rm --no-deps app
 RUN_DB := $(COMPOSE) run --rm app
 
-.PHONY: up down logs build migrate revision seed lint format typecheck test test-unit shell gate health metrics backup restore
+.PHONY: up down logs build migrate revision seed lint format typecheck test test-unit shell gate health metrics backup restore \
+        prod-up prod-down prod-logs prod-build prod-migrate
 
 up:
 	$(COMPOSE) up -d --build
@@ -62,6 +64,25 @@ backup:
 restore:
 	$(COMPOSE) exec -T db pg_restore --clean --if-exists --no-owner \
 		--dbname postgresql://app:app@localhost:5432/reminder /backups/$(f)
+
+# Production stack (tech.md 27). Same project name and same volume as the
+# development one, so `prod-up` replaces those containers and keeps the data.
+# The image carries no dev dependencies and no mounted source, so a code change
+# reaches a running process only through `prod-build`.
+prod-up:
+	$(COMPOSE_PROD) up -d --build
+
+prod-down:
+	$(COMPOSE_PROD) down
+
+prod-logs:
+	$(COMPOSE_PROD) logs -f bot worker
+
+prod-build:
+	$(COMPOSE_PROD) build
+
+prod-migrate:
+	$(COMPOSE_PROD) run --rm migrator
 
 # Full gate on an ephemeral stack, same steps as CI.
 gate:
