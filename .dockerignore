@@ -1,0 +1,35 @@
+# Secrets never enter an image layer. Without this line `COPY . .` bakes the
+# real bot token into the image, where a volume mount hides it locally and a
+# registry push publishes it.
+.env
+.env.local
+.env.bak*
+.env.*.bak*
+
+# Version control and editor state.
+.git
+.gitignore
+.claude
+
+# Tooling caches. They are large, host-specific and never used at runtime.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+coverage.xml
+htmlcov/
+
+# Local database dumps.
+backups/
+
+# OS noise.
+.DS_Store
+
+# Tests and docs stay in the image on purpose: the CI gate builds the `dev`
+# target and runs pytest against the copy, with no source mounted.
