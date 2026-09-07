@@ -8,6 +8,7 @@ import sqlalchemy as sa
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.bot.callbacks import ReactCb
 from app.db.models import Category, Delivery, Occurrence, Reminder, User
 from app.db.repositories.deliveries import DeliveriesRepository
 from app.domain.contracts import (
@@ -33,6 +34,17 @@ async def due(db_session, reminder_factory, occurrence_factory, delivery_factory
     delivery = await delivery_factory(occurrence, user_id=reminder.owner_id)
     await db_session.commit()
     return reminder, occurrence, delivery
+
+
+def reacted_ids(messages) -> list[int]:
+    """Delivery ids in the order their reminders reached the chat."""
+    return [
+        ReactCb.unpack(button.callback_data).delivery_id
+        for message in messages
+        for row in message.keyboard.inline_keyboard
+        for button in row
+        if ReactCb.unpack(button.callback_data).action == "done"
+    ]
 
 
 async def reload(session, model, pk):
@@ -244,6 +256,43 @@ async def test_a_retry_is_delivered_once_it_becomes_due(db_session, fake_clock, 
     stored = await reload(db_session, Delivery, delivery.id)
     assert stored.status is DeliveryStatus.SENT
     assert stored.attempts == 0
+
+
+async def test_deliveries_due_the_same_minute_drain_in_a_fixed_order(
+    db_session, fake_clock, fake_bot, reminder_factory, occurrence_factory, delivery_factory
+):
+    """Reminders due the same minute drain in one fixed order, cycle after cycle.
+
+    The due minute alone does not order them: rows sharing it come back in
+    physical order, which every write reshuffles. Then one cycle drains a queue
+    the next one reverses, a batch cuts the tie at a different place each time,
+    and a user with two reminders at 08:00 gets them in an order nothing chose.
+    """
+    due_at = FROZEN_NOW - timedelta(minutes=5)
+    ids = []
+    for _ in range(6):
+        reminder = await reminder_factory()
+        occurrence = await occurrence_factory(reminder, fire_at=due_at)
+        ids.append((await delivery_factory(occurrence, user_id=reminder.owner_id)).id)
+
+    # Rewriting the rows backwards leaves the table holding them in reverse:
+    # every update appends a new version. Nothing about the queue changed.
+    for delivery_id in reversed(ids):
+        await db_session.execute(
+            sa.update(Delivery).where(Delivery.id == delivery_id).values(attempts=0)
+        )
+    await db_session.commit()
+
+    service = DispatchingService(db_session, fake_clock, fake_bot, batch_size=2, lock_seconds=60)
+    drained = []
+    for _ in range(3):
+        sent_before = len(fake_bot.sent)
+        assert (await service.deliver()).sent == 2
+        drained.extend(reacted_ids(fake_bot.sent[sent_before:]))
+
+    # Three batches of two, each taking the head of the queue and sending it in
+    # that order: the batch boundary and the turn inside it are both decided.
+    assert drained == ids
 
 
 async def test_the_batch_takes_the_oldest_due_deliveries_first(
