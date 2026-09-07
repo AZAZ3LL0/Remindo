@@ -56,7 +56,10 @@ class DeliveriesRepository:
                 Delivery.next_attempt_at <= now,
                 sa.or_(Delivery.locked_until.is_(None), Delivery.locked_until < now),
             )
-            .order_by(Delivery.next_attempt_at)
+            # The id breaks the tie. Ordering by the due minute alone leaves
+            # rows of the same minute in physical order, which every write
+            # reshuffles, so one cycle drains a queue the next one reverses.
+            .order_by(Delivery.next_attempt_at, Delivery.id)
             .limit(batch)
             .with_for_update(skip_locked=True)
         )
@@ -69,7 +72,11 @@ class DeliveriesRepository:
             # claimed rows carry the incremented attempt counter.
             .execution_options(synchronize_session=False, populate_existing=True)
         )
-        return (await self._session.execute(stmt)).scalars().all()
+        claimed = (await self._session.execute(stmt)).scalars().all()
+        # RETURNING hands the rows back in whatever order the update touched
+        # them, so the batch is put back in queue order here. Without it the
+        # ORDER BY above only picks the rows and leaves their turn to chance.
+        return sorted(claimed, key=lambda row: (row.next_attempt_at, row.id))
 
     async def load_send_context(
         self, delivery_ids: Sequence[int]
@@ -241,7 +248,7 @@ class DeliveriesRepository:
                 )
                 <= now,
             )
-            .order_by(Delivery.sent_at)
+            .order_by(Delivery.sent_at, Delivery.id)
             .limit(limit)
         )
         rows = (await self._session.execute(stmt)).all()
