@@ -93,10 +93,17 @@ def buttons_of(message) -> dict[str, str]:
     }
 
 
-async def answer_next(session_factory, feed, fake_clock, fake_bot, settings, action: str) -> None:
+async def answer_next(
+    session_factory, feed, fake_clock, fake_bot, settings, action: str, index: int = 0
+) -> None:
+    """Answers one message of the next batch.
+
+    A batch carries one message per reminder due that minute, and the queue
+    drains in a fixed order, so the index names which reminder is answered.
+    """
     sent = await deliver_next(session_factory, fake_clock, fake_bot, settings)
     assert sent, "the planner produced nothing to answer"
-    await feed.press(buttons_of(sent[-1])[action])
+    await feed.press(buttons_of(sent[index])[action])
 
 
 async def run_digest(session_factory, fake_clock, fake_bot):
@@ -119,10 +126,10 @@ async def test_answered_reminders_become_a_streak_and_a_breakdown(
     await create_daily_reminder(feed, categories["water"], "Пить воду")
     await create_daily_reminder(feed, categories["pills"], "Витамины")
 
-    # Two mornings answered: one done in each category, then one skipped.
-    await answer_next(session_factory, feed, fake_clock, fake_bot, settings, "done")
-    await answer_next(session_factory, feed, fake_clock, fake_bot, settings, "done")
-    await answer_next(session_factory, feed, fake_clock, fake_bot, settings, "skip")
+    # Three mornings, one answer each: water done, pills done, water skipped.
+    await answer_next(session_factory, feed, fake_clock, fake_bot, settings, "done", index=0)
+    await answer_next(session_factory, feed, fake_clock, fake_bot, settings, "done", index=1)
+    await answer_next(session_factory, feed, fake_clock, fake_bot, settings, "skip", index=0)
 
     await feed.message("/stats")
     screen = telegram.sent_messages[-1]
