@@ -148,7 +148,7 @@ class OccurrencesRepository:
                     ]
                 ),
             )
-            .order_by(Occurrence.expires_at)
+            .order_by(Occurrence.expires_at, Occurrence.id)
             .limit(limit)
         )
         return (await self._session.execute(stmt)).scalars().all()
