@@ -34,17 +34,47 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
 
-      # The host keeps .env; migrations run as a one-shot step before the
-      # processes restart.
+      # The production profile, not the development stack (tech.md 28.1): the
+      # runtime image carries no test toolchain, no source is mounted over it
+      # and Postgres keeps its port inside the compose network. The host owns
+      # .env; the pipeline never writes it (tech.md 28.3).
       - name: Deploy
         if: steps.secrets.outputs.configured == 'true'
         run: |
           ssh -i ~/.ssh/id_ed25519 "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
-            "set -e
+            "set -eu
              cd ${{ secrets.DEPLOY_PATH }}
+             test -f .env
              git fetch --all
              git reset --hard origin/main
-             docker compose -f docker/compose.yml build
-             docker compose -f docker/compose.yml run --rm migrator
-             docker compose -f docker/compose.yml up -d bot worker
-             docker compose -f docker/compose.yml ps"
+             compose='docker compose -f docker/compose.prod.yml'
+             \$compose build
+             \$compose run --rm migrator
+             \$compose up -d bot worker
+             \$compose ps"
+
+      # up -d returns as soon as the container exists, so a process that dies
+      # two seconds later still looks like a green deploy (tech.md 28.2).
+      - name: Verify the stack
+        if: steps.secrets.outputs.configured == 'true'
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "set -eu
+             cd ${{ secrets.DEPLOY_PATH }}
+             compose='docker compose -f docker/compose.prod.yml'
+             ok=
+             for _ in \$(seq 1 20); do
+               if \$compose exec -T worker curl -fsS http://127.0.0.1:\${HEALTH_PORT:-8080}/healthz >/dev/null 2>&1 \
+                  && [ \"\$(\$compose ps -q bot | xargs -r docker inspect -f '{{.State.Running}}')\" = true ]; then
+                 ok=1
+                 break
+               fi
+               sleep 5
+             done
+             if [ -z \"\$ok\" ]; then
+               echo 'The stack did not come up.'
+               \$compose ps
+               \$compose logs --tail 50 bot worker
+               exit 1
+             fi
+             \$compose exec -T worker curl -fsS http://127.0.0.1:\${HEALTH_PORT:-8080}/healthz"

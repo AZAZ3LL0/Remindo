@@ -80,7 +80,7 @@ make backup
 строка ставится в крон хоста:
 
 ```
-17 3 * * * cd /srv/reminder && docker compose -f docker/compose.yml exec -T -e BACKUP_DIR=/backups db /srv/scripts/backup.sh
+17 3 * * * cd /srv/reminder && docker compose -f docker/compose.prod.yml exec -T -e BACKUP_DIR=/backups db /srv/scripts/backup.sh
 ```
 
 Восстановление из файла:
@@ -91,7 +91,20 @@ make restore f=reminder-20260905T031700Z.dump
 
 ## Деплой
 
-Автодеплой из `main` (`.github/workflows/deploy.yml`) по SSH. Нужны секреты
-окружения `staging`: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`,
-`DEPLOY_PATH`. Пока `DEPLOY_HOST` не задан, шаг пропускается и workflow зелёный.
-`.env` живёт на хосте и в репозиторий не попадает.
+Пошаговый путь от чистого VPS до работающего бота — [docs/deploy.md](docs/deploy.md).
+
+Прод-стек поднимается отдельным профилем (tech.md §27): образ цели `runtime` без
+dev-зависимостей, исходники не смонтированы, порт Postgres не публикуется.
+
+```bash
+make prod-build
+make prod-migrate
+make prod-up
+```
+
+Автодеплой из `main` (`.github/workflows/deploy.yml`) разворачивает тот же
+профиль (tech.md §28): пересборка, миграции одноразовым `migrator`, подъём
+`bot` и `worker`, проверка `/healthz`. Нужны секреты окружения `staging`:
+`DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_PATH`. Пока
+`DEPLOY_HOST` не задан, шаг пропускается и workflow зелёный. `.env` живёт на
+хосте и в репозиторий не попадает.
